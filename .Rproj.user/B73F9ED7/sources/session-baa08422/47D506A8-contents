@@ -1,0 +1,970 @@
+# # Download dead birds
+# https://www.inaturalist.org/observations?iconic_taxa=Aves&q=Dead&term_id=17&term_value_id=19
+# 
+# # Download dead mammals
+# https://www.inaturalist.org/observations?iconic_taxa=Mammalia&q=Dead&term_id=17&term_value_id=19
+# 
+# 
+# 
+# https://www.inaturalist.org/observations?iconic_taxa=Mammalia&q=Dead&term_id=17&term_value_id=19&taxon_id=Chiroptera
+
+# FIX bug 
+
+
+# This for example is all dead animals
+# https://www.inaturalist.org/observations?iconic_taxa=Mammalia&q=Dead&term_id=17&term_value_id=19&without_field=Roadkill
+
+# https://www.inaturalist.org/observations?iconic_taxa=Mammalia&q=Dead&term_id=17&term_value_id=19 # Download all dead mammals !!!!!
+# Adapt this to birds as well asn mammals and first the county, and then the bounding box !!!! 
+
+# Split into two separate functions ! 
+
+
+
+
+
+# I yjink i have to do this: user_id=jocateme&term_id=17&term_value_id=19
+# https://www.inaturalist.org/pages/search+urls # Thus ibe us jey 
+# https://forum.inaturalist.org/t/how-to-use-inaturalists-search-urls-wiki-part-1-of-2/63
+# Dec 2020 - ...org/observation_fields & order=desc Search for Annotations & term_id= - the annotation group 1 =Life Stage, 9 =Sex, 12 =Plant Phenology, 17 =Alive or Dead, 22 =Evidence of Presence & term_value_id= - the value within the group Life Stage: 2 =Adult, 3 =Teneral, 4 =Pupa, 5 =Nymph, 6 =Larva, 7 =Egg, 8 =Juv...
+# 19 is dead
+# Load a precomputng count by day data base. 
+
+#################################################
+# monthly_mortality_wes_colors_ggplot_location.R
+# ----------------------------------------------
+# 1) Monthly-chunked queries to iNaturalist to avoid large multi-page fetches.
+# 2) Daily time-series and top-20 species bar chart (Wes Anderson palette).
+# 3) Spatial map (ggplot) of top 90th percentile mortality days,
+#    parsing the "location" column (e.g., "28.1341516,-96.9842456").
+# 4) Saves:
+#      - daily_plot.png
+#      - top_species_plot.png
+#      - map_hotspots.png
+#      - merged_df_top_all_data.csv (all data)
+#      - merged_df_top90.csv (top 90% daily mortality days)
+#    if you specify 'outdir'.
+# 5) Wrapper functions for Canada, USA, and California bounding box,
+#    each for Birds or Mammals.
+#
+# Author: [Your Name]
+# Date:   [Date]
+#################################################
+
+### Required packages:
+# install.packages(c(
+#   "httr", "jsonlite", "tidyverse", "glue", "lubridate",
+#   "wesanderson", "sf"  # 'sf' is optional if you want advanced geometry
+# ))
+library(httr)
+library(jsonlite)
+library(tidyverse)
+library(glue)
+library(lubridate)
+library(wesanderson)
+
+#########################################################
+# A) fetch_dead_data_once(): Single date-range query
+#########################################################
+fetch_dead_data_once <- function(
+    place_id    = NULL,
+    swlat       = NULL,
+    swlng       = NULL,
+    nelat       = NULL,
+    nelng       = NULL,
+    start_date,
+    end_date,
+    taxon_id    = 26036,  # e.g. 3=Birds, 40151=Mammals
+    per_page    = 1000,
+    max_pages   = 50
+) {
+  base_url <- "https://api.inaturalist.org/v1/observations"
+  
+  query_params <- glue(
+    "annotation_term_id=9&",    # "Alive or Dead"
+    "annotation_value_id=48&",  # "Dead" # Should it not be 18 (Alive), 19 (Dead) # https://www.inaturalist.org/pages/search+urls
+    "taxon_id={taxon_id}&",
+    "verifiable=true&",
+    "d1={start_date}&d2={end_date}&",
+    "order=desc&order_by=created_at&",
+    "per_page={per_page}"
+  )
+  
+  # Build location param
+  loc_part <- ""
+  if (!is.null(place_id)) {
+    loc_part <- glue("&place_id={place_id}")
+  } else if (!is.null(swlat) && !is.null(swlng) && !is.null(nelat) && !is.null(nelng)) {
+    loc_part <- glue("&nelat={nelat}&nelng={nelng}&swlat={swlat}&swlng={swlng}")
+  } else {
+    stop("Must provide either 'place_id' OR a bounding box (swlat, swlng, nelat, nelng).")
+  }
+  
+  observations_list <- list()
+  current_page <- 1
+  
+  while (current_page <= max_pages) {
+    query_url <- paste0(
+      base_url, "?",
+      query_params,
+      "&page=", current_page,
+      loc_part
+    )
+    
+    message("Fetching page ", current_page,
+            " for date range [", start_date, " to ", end_date, "]: ", query_url)
+    
+    resp <- GET(query_url)
+    if (http_error(resp)) {
+      warning("HTTP error on page ", current_page, ": ", status_code(resp))
+      break
+    }
+    
+    parsed <- content(resp, as="text", encoding="UTF-8") %>%
+      fromJSON(flatten=TRUE)
+    
+    if (length(parsed$results) == 0) {
+      message("No more results at page ", current_page)
+      break
+    }
+    
+    obs_page_df <- as_tibble(parsed$results)
+    observations_list[[current_page]] <- obs_page_df
+    
+    if (nrow(obs_page_df) < per_page) {
+      message("Reached last page of results at page ", current_page)
+      break
+    }
+    
+    current_page <- current_page + 1
+    Sys.sleep(1)  # small pause
+  }
+  
+  observations_all <- bind_rows(observations_list) %>%
+    mutate(life_status = "Dead")
+  
+  return(observations_all)
+}
+
+#########################################################
+# B) fetch_dead_data_monthly():
+#    For one YEAR, split into 12 monthly intervals.
+#########################################################
+fetch_dead_data_monthly <- function(
+    year,
+    place_id   = NULL,
+    swlat      = NULL,
+    swlng      = NULL,
+    nelat      = NULL,
+    nelng      = NULL,
+    taxon_id   = 26036
+) {
+  monthly_list <- list()
+  
+  for (month_i in 1:12) {
+    start_date <- as.Date(glue("{year}-{sprintf('%02d', month_i)}-01"))
+    end_date   <- start_date %m+% months(1) %m-% days(1)
+    
+    if (year(start_date) != year) break
+    
+    message("\n--- Querying year ", year, ", month ", month_i, " ---\n")
+    
+    df_month <- fetch_dead_data_once(
+      place_id  = place_id,
+      swlat     = swlat,
+      swlng     = swlng,
+      nelat     = nelat,
+      nelng     = nelng,
+      start_date= start_date,
+      end_date  = end_date,
+      taxon_id  = taxon_id
+    )
+    monthly_list[[month_i]] <- df_month
+  }
+  
+  year_df <- bind_rows(monthly_list)
+  return(year_df)
+}
+
+#########################################################
+# C) getDeadVertebrates_monthlyLoop():
+#    1) Loops over multiple years, monthly queries
+#    2) Summarizes daily mortality
+#    3) Builds top-20 species bar chart
+#    4) Creates a ggplot map of top 90% days, parsing "location"
+#    5) Writes CSVs + PNGs if outdir is provided
+#########################################################
+getDeadVertebrates_monthlyLoop <- function(
+    years       = c(2022, 2023),
+    # Either place_id OR bounding box (swlat, swlng, nelat, nelng)
+    place_id    = NULL,
+    swlat       = NULL,
+    swlng       = NULL,
+    nelat       = NULL,
+    nelng       = NULL,
+    taxon_id    = 26036,  # e.g. 3=Birds, 40151=Mammals
+    per_page    = 1000,
+    max_pages   = 50,
+    outdir      = NULL
+) {
+  # 1) Gather monthly data for each year
+  all_years_list <- list()
+  
+  for (yr in years) {
+    message("\n========= YEAR: ", yr, " ==========\n")
+    yr_df <- fetch_dead_data_monthly(
+      year     = yr,
+      place_id = place_id,
+      swlat    = swlat,
+      swlng    = swlng,
+      nelat    = nelat,
+      nelng    = nelng,
+      taxon_id = taxon_id
+    ) %>%
+      mutate(Window = as.character(yr))
+    
+    all_years_list[[as.character(yr)]] <- yr_df
+  }
+  
+  # Combine all monthly data for all years
+  merged_df_all <- bind_rows(all_years_list)
+  
+  # If no data, return empties
+  if (!"created_at_details.date" %in% names(merged_df_all) ||
+      nrow(merged_df_all) == 0) {
+    daily_plot <- ggplot() +
+      labs(title = "No 'Dead' Observations Found", x=NULL, y=NULL) +
+      theme_void()
+    
+    top_species_plot <- ggplot() +
+      labs(title = "No species data", x=NULL, y=NULL) +
+      theme_void()
+    
+    map_hotspots_gg <- ggplot() +
+      labs(title = "No data for hotspots map") +
+      theme_void()
+    
+    return(list(
+      merged_df        = merged_df_all,  # empty
+      daily_plot       = daily_plot,
+      top_species_plot = top_species_plot,
+      map_hotspots_gg  = map_hotspots_gg
+    ))
+  }
+  
+  # Save all data to CSV (if outdir specified)
+  if (!is.null(outdir)) {
+    if (!dir.exists(outdir)) {
+      dir.create(outdir, recursive=TRUE)
+    }
+    readr::write_csv(merged_df_all, file.path(outdir, "merged_df_top_all_data.csv"))
+  }
+  
+  # 2) Daily time-series
+  counts_by_day <- merged_df_all %>%
+    mutate(obs_date = as.Date(`created_at_details.date`)) %>%
+    group_by(Window, obs_date) %>%
+    summarise(n = n(), .groups="drop")
+  
+  # Build daily plot
+  n_windows  <- length(unique(counts_by_day$Window))
+  wes_colors <- wes_palette("Zissou1", n_windows, type="discrete")
+  
+  daily_plot <- ggplot(counts_by_day, aes(x=obs_date, y=n, color=Window)) +
+    geom_line(size=1.2) +
+    geom_point(size=2) +
+    scale_color_manual(values=wes_colors) +
+    scale_x_date(date_labels="%b", date_breaks="1 month") +
+    labs(
+      title = glue("Daily 'Dead' Observations (Years {paste(years, collapse=', ')})"),
+      x     = "Month",
+      y     = "Number of Observations",
+      color = "Year"
+    ) +
+    theme_minimal(base_size=14) +
+    theme(axis.text.x = element_text(angle=45, hjust=1))
+  
+  # 3) Top-20 species bar plot
+  if ("taxon.name" %in% names(merged_df_all)) {
+    species_counts <- merged_df_all %>%
+      filter(!is.na(taxon.name)) %>%
+      group_by(Window, taxon.name) %>%
+      summarise(dead_count=n(), .groups="drop")
+    
+    top_species_overall <- species_counts %>%
+      group_by(taxon.name) %>%
+      summarise(total_dead=sum(dead_count)) %>%
+      arrange(desc(total_dead)) %>%
+      slice_head(n=20)
+    
+    species_top20 <- species_counts %>%
+      filter(taxon.name %in% top_species_overall$taxon.name)
+    
+    top_species_plot <- ggplot(species_top20, aes(
+      x   = reorder(taxon.name, -dead_count),
+      y   = dead_count,
+      fill= Window
+    )) +
+      geom_col(position=position_dodge(width=0.7)) +
+      coord_flip() +
+      scale_fill_manual(values=wes_colors) +
+      labs(
+        title = "Top 20 Species with 'Dead' Observations",
+        x     = "Species",
+        y     = "Number of Dead Observations",
+        fill  = "Year"
+      ) +
+      theme_minimal(base_size=14)
+  } else {
+    top_species_plot <- ggplot() +
+      labs(title="No 'taxon.name' column found", x=NULL, y=NULL) +
+      theme_void()
+  }
+  
+  # 4) Identify top 90th percentile daily mortality => "hotspots"
+  daily_quantile <- quantile(counts_by_day$n, probs=0.90)
+  high_mortality_days <- counts_by_day %>%
+    filter(n >= daily_quantile) %>%
+    pull(obs_date)
+  
+  merged_high <- merged_df_all %>%
+    mutate(obs_date = as.Date(`created_at_details.date`)) %>%
+    filter(obs_date %in% high_mortality_days)
+  
+  # Convert "location" col to lat/lon if present
+  if ("location" %in% names(merged_high)) {
+    location_df <- merged_high %>%
+      filter(!is.na(location) & location != "") %>%
+      separate(location, into=c("lat_str","lon_str"), sep=",", remove=FALSE) %>%
+      mutate(
+        latitude  = as.numeric(lat_str),
+        longitude = as.numeric(lon_str)
+      )
+    
+    if(nrow(location_df) == 0) {
+      map_hotspots_gg <- ggplot() +
+        labs(title="No data in top 90th percentile days with valid location") +
+        theme_void()
+    } else {
+      # We find bounding box from data to zoom
+      min_lon <- min(location_df$longitude, na.rm=TRUE)
+      max_lon <- max(location_df$longitude, na.rm=TRUE)
+      min_lat <- min(location_df$latitude,  na.rm=TRUE)
+      max_lat <- max(location_df$latitude,  na.rm=TRUE)
+      
+      map_hotspots_gg <- ggplot(location_df, aes(x=longitude, y=latitude, color=Window)) +
+        borders("world", fill="gray80", colour="white") +
+        geom_point(alpha=0.6, size=2) +
+        scale_color_manual(values=wes_colors) +
+        coord_quickmap(
+          xlim=c(min_lon, max_lon),
+          ylim=c(min_lat, max_lat),
+          expand=TRUE
+        ) +
+        labs(
+          title = glue("Top 90th percentile mortality days ({paste(years, collapse=', ')})"),
+          x     = "Longitude",
+          y     = "Latitude",
+          color = "Year"
+        ) +
+        theme_minimal(base_size=14)
+    }
+  } else {
+    map_hotspots_gg <- ggplot() +
+      labs(title="No 'location' column for top 90% days map") +
+      theme_void()
+  }
+  
+  # 5) If outdir specified, save plots + CSV
+  if (!is.null(outdir)) {
+    # Make sure directory exists
+    if (!dir.exists(outdir)) {
+      dir.create(outdir, recursive=TRUE)
+    }
+    
+    # Save the top-90% CSV
+    readr::write_csv(merged_high, file.path(outdir, "merged_df_top90.csv"))
+    
+    # daily_plot
+    ggsave(file.path(outdir, "daily_plot.png"),
+           daily_plot, width=8, height=5, dpi=300)
+    # top_species_plot
+    ggsave(file.path(outdir, "top_species_plot.png"),
+           top_species_plot, width=7, height=7, dpi=300)
+    # map_hotspots_gg
+    ggsave(file.path(outdir, "map_hotspots.png"),
+           map_hotspots_gg, width=8, height=5, dpi=300)
+  }
+  
+  # 6) Return results
+  return(list(
+    merged_df        = merged_high,   # top 90% days
+    daily_plot       = daily_plot,
+    top_species_plot = top_species_plot,
+    map_hotspots_gg  = map_hotspots_gg,
+    daily_90th_quant = daily_quantile
+  ))
+}
+
+#########################################################
+# Wrapper functions: Canada, USA, California
+# (Birds, Mammals)
+#########################################################
+
+#### Canada
+getDeadVertebrates_canadaBirds <- function(
+    years  = c(2022, 2023),
+    outdir = NULL
+) {
+  # place_id=6712 => Canada, taxon_id=3 => Birds
+  getDeadVertebrates_monthlyLoop(
+    years    = years,
+    place_id = 6712,
+    taxon_id = 3,
+    outdir   = outdir
+  )
+}
+
+getDeadVertebrates_canadaMammals <- function(
+    years  = c(2022, 2023),
+    outdir = NULL
+) {
+  # place_id=6712 => Canada, taxon_id=40151 => Mammals
+  getDeadVertebrates_monthlyLoop(
+    years    = years,
+    place_id = 6712,
+    taxon_id = 40151,
+    outdir   = outdir
+  )
+}
+
+#### USA
+getDeadVertebrates_usaBirds <- function(
+    years  = c(2022, 2023),
+    outdir = NULL
+) {
+  # place_id=1 => USA, taxon_id=3 => Birds
+  getDeadVertebrates_monthlyLoop(
+    years    = years,
+    place_id = 1,
+    taxon_id = 3,
+    outdir   = outdir
+  )
+}
+
+getDeadVertebrates_usaMammals <- function(
+    years  = c(2022, 2023),
+    outdir = NULL
+) {
+  # place_id=1 => USA, taxon_id=40151 => Mammals
+  getDeadVertebrates_monthlyLoop(
+    years    = years,
+    place_id = 1,
+    taxon_id = 40151,
+    outdir   = outdir
+  )
+}
+
+#### California bounding box (Birds, Mammals)
+# approximate bounding box:
+#   SW corner (32.5, -124.5), NE corner (42.0, -114.1)
+
+getDeadVertebrates_californiaBirds <- function(
+    years  = c(2022, 2023),
+    outdir = NULL
+) {
+  getDeadVertebrates_monthlyLoop(
+    years    = years,
+    swlat    = 32.5,
+    swlng    = -124.5,
+    nelat    = 42.0,
+    nelng    = -114.1,
+    taxon_id = 3,  # Birds
+    outdir   = outdir
+  )
+}
+
+getDeadVertebrates_californiaMammals <- function(
+    years  = c(2022, 2023),
+    outdir = NULL
+) {
+  getDeadVertebrates_monthlyLoop(
+    years    = years,
+    swlat    = 32.5,
+    swlng    = -124.5,
+    nelat    = 42.0,
+    nelng    = -114.1,
+    taxon_id = 40151,  # Mammals
+    outdir   = outdir
+  )
+}
+
+#########################################################
+# Example usage
+#########################################################
+
+# 1) Canada - Birds
+res_canada_birds <- getDeadVertebrates_canadaBirds(
+  years  = c(2022, 2023, 2024, 2025),
+  outdir = "outputs/canada_birds"
+)
+
+# 2) Canada - Mammals
+res_canada_mammals <- getDeadVertebrates_canadaMammals(
+  years  = c(2022, 2023, 2024, 2025),
+  outdir = "outputs/canada_mammals"
+)
+
+# 3) USA - Birds
+res_usa_birds <- getDeadVertebrates_usaBirds(
+  years  = c(2022, 2023, 2024, 2025),
+  outdir = "outputs/usa_birds"
+)
+
+# 4) USA - Mammals
+res_usa_mammals <- getDeadVertebrates_usaMammals(
+  years  = c(2022, 2023, 2024, 2025),
+  outdir = "outputs/usa_mammals"
+)
+
+# 5) California bounding box - Birds
+res_ca_birds <- getDeadVertebrates_californiaBirds(
+  years  = c(2022, 2023, 2024, 2025),
+  outdir = "outputs/ca_birds"
+)
+
+# 6) California bounding box - Mammals
+res_ca_mammals <- getDeadVertebrates_californiaMammals(
+  years  = c(2022, 2023, 2024, 2025),
+  outdir = "outputs/ca_mammals"
+)
+
+
+
+
+
+
+
+
+
+
+
+########################################################################################
+
+
+
+#################################################
+# monthly_mortality_wes_colors_ggplot_location.R
+# ----------------------------------------------
+# This version is for "Birds" in the California bounding box,
+# specifically focusing on "waterfowl" (Anatidae) in a
+# post-query filter step. Could help investigate potential
+# avian flu mass mortality events.
+#
+# Will produce:
+#   - daily_plot.png
+#   - top_species_plot.png
+#   - map_hotspots.png
+#   - merged_df_top_all_data.csv
+#   - merged_df_top90.csv
+# in the specified 'outdir' if provided.
+#
+# Author: [Your Name]
+# Date:   [Date]
+#################################################
+
+### Required packages
+# install.packages(c(
+#   "httr", "jsonlite", "tidyverse", "glue", "lubridate",
+#   "wesanderson"
+# ))
+
+library(httr)
+library(jsonlite)
+library(tidyverse)
+library(glue)
+library(lubridate)
+library(wesanderson)
+
+#########################################################
+# A) fetch_dead_data_once(): Single date-range query
+#########################################################
+fetch_dead_data_once <- function(
+    place_id    = NULL,
+    swlat       = NULL,
+    swlng       = NULL,
+    nelat       = NULL,
+    nelng       = NULL,
+    start_date,
+    end_date,
+    taxon_id    = 3,    # Default to Birds (Aves) for bird-flu scenario
+    per_page    = 1000,
+    max_pages   = 50
+) {
+  base_url <- "https://api.inaturalist.org/v1/observations"
+  
+  query_params <- glue(
+    "annotation_term_id=9&",    # "Alive or Dead"
+    "annotation_value_id=48&",  # "Dead"
+    "taxon_id={taxon_id}&",
+    "verifiable=true&",
+    "d1={start_date}&d2={end_date}&",
+    "order=desc&order_by=created_at&",
+    "per_page={per_page}"
+  )
+  
+  loc_part <- ""
+  if (!is.null(place_id)) {
+    loc_part <- glue("&place_id={place_id}")
+  } else if (!is.null(swlat) && !is.null(swlng) && !is.null(nelat) && !is.null(nelng)) {
+    loc_part <- glue("&nelat={nelat}&nelng={nelng}&swlat={swlat}&swlng={swlng}")
+  } else {
+    stop("Must provide either 'place_id' OR bounding box (swlat, swlng, nelat, nelng).")
+  }
+  
+  observations_list <- list()
+  current_page <- 1
+  
+  while (current_page <= max_pages) {
+    query_url <- paste0(
+      base_url, "?",
+      query_params,
+      "&page=", current_page,
+      loc_part
+    )
+    
+    message("Fetching page ", current_page,
+            " for date range [", start_date, " to ", end_date, "]: ", query_url)
+    
+    resp <- GET(query_url)
+    if (http_error(resp)) {
+      warning("HTTP error on page ", current_page, ": ", status_code(resp))
+      break
+    }
+    
+    parsed <- content(resp, as="text", encoding="UTF-8") %>%
+      fromJSON(flatten=TRUE)
+    
+    if (length(parsed$results) == 0) {
+      message("No more results at page ", current_page)
+      break
+    }
+    
+    obs_page_df <- as_tibble(parsed$results)
+    observations_list[[current_page]] <- obs_page_df
+    
+    if (nrow(obs_page_df) < per_page) {
+      message("Reached last page of results at page ", current_page)
+      break
+    }
+    
+    current_page <- current_page + 1
+    Sys.sleep(1)  # small pause
+  }
+  
+  observations_all <- bind_rows(observations_list) %>%
+    mutate(life_status = "Dead")
+  
+  return(observations_all)
+}
+
+#########################################################
+# B) fetch_dead_data_monthly():
+#    For one YEAR, split into 12 monthly intervals.
+#########################################################
+fetch_dead_data_monthly <- function(
+    year,
+    place_id   = NULL,
+    swlat      = NULL,
+    swlng      = NULL,
+    nelat      = NULL,
+    nelng      = NULL,
+    taxon_id   = 3  # Birds for default scenario
+) {
+  monthly_list <- list()
+  
+  for (month_i in 1:12) {
+    start_date <- as.Date(glue("{year}-{sprintf('%02d', month_i)}-01"))
+    end_date   <- start_date %m+% months(1) %m-% days(1)
+    
+    if (year(start_date) != year) break
+    
+    message("\n--- Querying year ", year, ", month ", month_i, " ---\n")
+    
+    df_month <- fetch_dead_data_once(
+      place_id  = place_id,
+      swlat     = swlat,
+      swlng     = swlng,
+      nelat     = nelat,
+      nelng     = nelng,
+      start_date= start_date,
+      end_date  = end_date,
+      taxon_id  = taxon_id
+    )
+    monthly_list[[month_i]] <- df_month
+  }
+  
+  year_df <- bind_rows(monthly_list)
+  return(year_df)
+}
+
+#########################################################
+# C) getDeadVertebrates_CaliforniaWaterfowl():
+#    1) Loops over multiple years (monthly queries) for Birds in CA bounding box.
+#    2) Then subsets to "waterfowl" (Anatidae) in a post-query filter step.
+#    3) Summarizes daily mortality, top species, top-90% map, saves results if outdir given.
+#########################################################
+getDeadVertebrates_CaliforniaWaterfowl <- function(
+    years       = c(2022, 2023),
+    swlat       = 32.5,
+    swlng       = -124.5,
+    nelat       = 42.0,
+    nelng       = -114.1,
+    per_page    = 1000,
+    max_pages   = 50,
+    outdir      = NULL
+) {
+  message("=== Querying Dead Birds in California bounding box, monthly, for years: ",
+          paste(years, collapse=", "), " ===")
+  
+  # Step 1) Gather monthly data for each year (Birds => taxon_id=3)
+  all_years_list <- list()
+  
+  for (yr in years) {
+    message("\n========= YEAR: ", yr, " ==========\n")
+    yr_df <- fetch_dead_data_monthly(
+      year     = yr,
+      swlat    = swlat,
+      swlng    = swlng,
+      nelat    = nelat,
+      nelng    = nelng,
+      taxon_id = 3,  # Birds
+      place_id = NULL
+    ) %>%
+      mutate(Window = as.character(yr))
+    
+    all_years_list[[as.character(yr)]] <- yr_df
+  }
+  
+  merged_df_all <- bind_rows(all_years_list)
+  
+  # If no data
+  if (!"created_at_details.date" %in% names(merged_df_all) ||
+      nrow(merged_df_all) == 0) {
+    warning("No 'Dead' observations found for these parameters.")
+    return(list(
+      merged_df        = tibble(),
+      daily_plot       = ggplot() + theme_void(),
+      top_species_plot = ggplot() + theme_void(),
+      map_hotspots_gg  = ggplot() + theme_void()
+    ))
+  }
+  
+  # Step 2) SUBSET to waterfowl (Anatidae) -> post-query filter
+  #   iNat results often have e.g.: taxon.family_name, or flattened "taxon.family"
+  #   If the code is "taxon.family_name" or "taxon.family", check which column you have.
+  #   For demonstration, let's look for "taxon.family_name" or "taxon.family".
+  
+  # 1) Identify which column is present:
+  col_names <- names(merged_df_all)
+  family_col <- col_names[grepl("^taxon.family(|_name)$", col_names)]  # e.g. 'taxon.family' or 'taxon.family_name'
+  if (length(family_col) == 0) {
+    warning("No 'taxon.family' or 'taxon.family_name' column found. Returning all birds.")
+    waterfowl_df <- merged_df_all
+  } else {
+    # We'll just use the first match
+    the_family_col <- family_col[1]
+    message("Filtering to waterfowl (Anatidae) using column: ", the_family_col)
+    
+    waterfowl_df <- merged_df_all %>%
+      filter(!!sym(the_family_col) == "Anatidae")
+    
+    if (nrow(waterfowl_df) == 0) {
+      warning("No waterfowl (Anatidae) found in the data. Returning an empty result.")
+      return(list(
+        merged_df        = tibble(),
+        daily_plot       = ggplot() + theme_void(),
+        top_species_plot = ggplot() + theme_void(),
+        map_hotspots_gg  = ggplot() + theme_void()
+      ))
+    }
+  }
+  
+  # Optionally: We could also filter by genus or species if needed.
+  # For example:
+  # waterfowl_df <- waterfowl_df %>%
+  #   filter(grepl("Anas|Branta", taxon.genus, ignore.case=TRUE)) # ducks, geese, etc.
+  
+  # Step 3) Save all data to CSV (if outdir specified)
+  if (!is.null(outdir)) {
+    if (!dir.exists(outdir)) {
+      dir.create(outdir, recursive=TRUE)
+    }
+    readr::write_csv(waterfowl_df, file.path(outdir, "california_waterfowl_all_data.csv"))
+  }
+  
+  # 4) Summaries
+  #   4A) Daily counts
+  waterfowl_df <- waterfowl_df %>%
+    mutate(obs_date = as.Date(`created_at_details.date`))
+  
+  counts_by_day <- waterfowl_df %>%
+    group_by(Window, obs_date) %>%
+    summarise(n = n(), .groups="drop")
+  
+  if (nrow(counts_by_day) == 0) {
+    warning("No daily data found for waterfowl subset.")
+    return(list(
+      merged_df        = tibble(),
+      daily_plot       = ggplot() + theme_void(),
+      top_species_plot = ggplot() + theme_void(),
+      map_hotspots_gg  = ggplot() + theme_void()
+    ))
+  }
+  
+  #   Build daily plot
+  n_windows  <- length(unique(counts_by_day$Window))
+  wes_colors <- wes_palette("Zissou1", n_windows, type="discrete")
+  
+  daily_plot <- ggplot(counts_by_day, aes(x=obs_date, y=n, color=Window)) +
+    geom_line(size=1.2) +
+    geom_point(size=2) +
+    scale_color_manual(values=wes_colors) +
+    scale_x_date(date_labels="%b", date_breaks="1 month") +
+    labs(
+      title = glue("Daily 'Dead' Waterfowl (Anatidae) Observations\n(Years {paste(years, collapse=', ')}, California)"),
+      x     = "Month",
+      y     = "Number of Observations",
+      color = "Year"
+    ) +
+    theme_minimal(base_size=14) +
+    theme(axis.text.x = element_text(angle=45, hjust=1))
+  
+  #   4B) Top-20 species
+  top_species_plot <- ggplot() + theme_void()  # default if no species col
+  
+  if ("taxon.name" %in% names(waterfowl_df)) {
+    species_counts <- waterfowl_df %>%
+      filter(!is.na(taxon.name)) %>%
+      group_by(Window, taxon.name) %>%
+      summarise(dead_count=n(), .groups="drop")
+    
+    top_species_overall <- species_counts %>%
+      group_by(taxon.name) %>%
+      summarise(total_dead=sum(dead_count)) %>%
+      arrange(desc(total_dead)) %>%
+      slice_head(n=20)
+    
+    species_top20 <- species_counts %>%
+      filter(taxon.name %in% top_species_overall$taxon.name)
+    
+    top_species_plot <- ggplot(species_top20, aes(
+      x   = reorder(taxon.name, -dead_count),
+      y   = dead_count,
+      fill= Window
+    )) +
+      geom_col(position=position_dodge(width=0.7)) +
+      coord_flip() +
+      scale_fill_manual(values=wes_colors) +
+      labs(
+        title = "Top 20 Waterfowl Species with 'Dead' Observations",
+        x     = "Species",
+        y     = "Number of Dead Observations",
+        fill  = "Year"
+      ) +
+      theme_minimal(base_size=14)
+  }
+  
+  #   4C) Top 90% daily mortality => map
+  daily_quantile <- quantile(counts_by_day$n, probs=0.90)
+  high_mortality_days <- counts_by_day %>%
+    filter(n >= daily_quantile) %>%
+    pull(obs_date)
+  
+  merged_high <- waterfowl_df %>%
+    filter(obs_date %in% high_mortality_days)
+  
+  #   Convert "location" col to lat/lon if present
+  map_hotspots_gg <- ggplot() + theme_void()  # default if no location col
+  
+  if ("location" %in% names(merged_high)) {
+    location_df <- merged_high %>%
+      filter(!is.na(location) & location != "") %>%
+      separate(location, into=c("lat_str","lon_str"), sep=",", remove=FALSE) %>%
+      mutate(
+        latitude  = as.numeric(lat_str),
+        longitude = as.numeric(lon_str)
+      )
+    
+    if(nrow(location_df) > 0) {
+      # Zoom to the bounding box of data
+      min_lon <- min(location_df$longitude, na.rm=TRUE)
+      max_lon <- max(location_df$longitude, na.rm=TRUE)
+      min_lat <- min(location_df$latitude,  na.rm=TRUE)
+      max_lat <- max(location_df$latitude,  na.rm=TRUE)
+      
+      map_hotspots_gg <- ggplot(location_df, aes(x=longitude, y=latitude, color=Window)) +
+        borders("world", fill="gray80", colour="white") +
+        geom_point(alpha=0.6, size=2) +
+        scale_color_manual(values=wes_colors) +
+        coord_quickmap(
+          xlim=c(min_lon, max_lon),
+          ylim=c(min_lat, max_lat),
+          expand=TRUE
+        ) +
+        labs(
+          title = glue("Top 90% 'Dead' Waterfowl Observations\n({paste(years, collapse=', ')}, California)"),
+          x     = "Longitude",
+          y     = "Latitude",
+          color = "Year"
+        ) +
+        theme_minimal(base_size=14)
+    }
+  }
+  
+  # 5) Save results (if outdir specified)
+  if (!is.null(outdir)) {
+    if (!dir.exists(outdir)) {
+      dir.create(outdir, recursive=TRUE)
+    }
+    
+    # Save all waterfowl data
+    readr::write_csv(waterfowl_df, file.path(outdir, "california_waterfowl_all_data.csv"))
+    
+    # Save top-90% daily subset
+    readr::write_csv(merged_high, file.path(outdir, "california_waterfowl_top90.csv"))
+    
+    # daily plot
+    ggsave(file.path(outdir, "daily_plot.png"), daily_plot, width=8, height=5, dpi=300)
+    # top species
+    ggsave(file.path(outdir, "top_species_plot.png"), top_species_plot, width=7, height=7, dpi=300)
+    # map hotspots
+    ggsave(file.path(outdir, "map_hotspots.png"), map_hotspots_gg, width=8, height=5, dpi=300)
+  }
+  
+  # 6) Return results
+  return(list(
+    merged_df        = merged_high,   # top 90% daily mortality
+    daily_plot       = daily_plot,
+    top_species_plot = top_species_plot,
+    map_hotspots_gg  = map_hotspots_gg,
+    daily_90th_quant = daily_quantile
+  ))
+}
+
+#########################################################
+# Example usage: 
+#   Suppose you want 2022-2023 waterfowl in CA bounding box
+#########################################################
+res_ca_waterfowl <- getDeadVertebrates_CaliforniaWaterfowl(
+  years  = c(2019, 2020, 2021, 2022, 2023, 2024, 2025),
+  outdir = "outputs/ca_waterfowl"
+)
+# This call will produce:
+#   - daily_plot.png
+#   - top_species_plot.png
+#   - map_hotspots.png
+#   - california_waterfowl_all_data.csv  (all waterfowl birds data)
+#   - california_waterfowl_top90.csv     (top 90% daily mortality)
+#
+# You can also do c(2022, 2023, 2024, 2025) if you want more years.

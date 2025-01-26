@@ -1,0 +1,141 @@
+#
+# Logistics
+#
+library(tidyverse)
+library(rnaturalearth)
+library(ggdensity)
+
+#
+# Data
+#
+# Separate Canada and USA aves mortality records (D. E-S. output)
+canada_birds <- read_csv("CANADA_BIRDS_merged_df_top_all_data.csv")
+usa_birds <- read_csv("USA_BIRDS_merged_df_top_all_data.csv")
+
+# Merge and clean bird records across US and Canada
+na_birds <- bind_rows(canada_birds, usa_birds) |>
+         select(ID = uuid,
+                Taxon = taxon.name,
+                Date = observed_on,
+                Location = location) |>
+         mutate(Date = ymd(Date)) |>
+         separate(Location, into=c("Latitude", "Longitude"), sep=",") |>
+         mutate(Latitude = as.numeric(Latitude), Longitude = as.numeric(Longitude)) |>
+         mutate(Week = week(Date),
+                Year = year(Date),
+                YDay = yday(Date)) |>
+         filter(Year %in% 2022:2024)
+
+# Calculate daily tallies
+na_birds_daily <- na_birds |>
+               group_by(Date, YDay, Year) |>
+               tally()
+
+# Calculate mean and standard deviation boundaries for mortality observations
+#   NOTE within each year
+na_birds_daily_sds <- na_birds_daily |>
+                   group_by(Year) |>
+                   summarize(Mean = mean(n), SD = sd(n))
+
+# Flag days of unusually high mortality
+# (those that are > 2*SD daily mortality within each year)
+na_birds_daily_flagged <- na_birds_daily |>
+                       left_join(na_birds_daily_sds, by="Year") |>
+                       filter(n > Mean + SD*2)
+
+# Custom function to merge events that are <7 days apart
+mergeEvents <- function(df) {
+    events <- df |>
+           ungroup() |>
+           arrange(Date) |>
+           mutate(Next_Event = days(Date - lag(Date))) |>
+           mutate(To_Merge = Next_Event < days(7)) |>
+           mutate(To_Merge = replace_na(To_Merge, FALSE))
+    eventCounter <- 0
+    mergedEvents <- c()
+    for (r in 1:nrow(events)) {
+        if (!events$To_Merge[r]) { eventCounter <- eventCounter + 1}
+        mergedEvents <- append(mergedEvents, eventCounter)
+    }
+    events <- mutate(events, Event_ID = mergedEvents) |>
+           group_by(Event_ID) |>
+           summarize(Start_Date = min(Date),
+                     End_Date = max(Date),
+                     Start_YDay = min(YDay),
+                     End_YDay = max(YDay),
+                     Total_n = sum(n),
+                     Label_X = (min(YDay) + max(YDay))/2,
+                     Label_Y = max(n) + 50) |>
+           mutate(Year = year(End_Date))
+}
+
+# Summarize mortality events
+# (the start and end periods of days with >2*SD mortality within each year,
+#  with days grouped together if they are <10 days apart)
+na_bird_events <- mergeEvents(na_birds_daily_flagged)
+
+# Custom function to identify if a date is associated with a particular event
+getEventID <- function(target_date) {
+    id <- na_birds_events[na_birds_events$Start_Date<=target_date & na_birds_events$End_Date>=target_date, "Event_ID"][[1]]
+    if (length(id) <= 0) { return(NA) }
+    return(id)
+}
+
+# Go back to the original mortality records and flag if they belong to an event
+na_bird_events_locations <- na_birds |>
+                         mutate(Event_ID = map_dbl(Date, getEventID)) |>
+                         filter(!is.na(Event_ID)) |>
+                         mutate(Longitude_Jittered = Longitude + rnorm(n(), mean=0, sd=0.001),
+                                Latitude_Jittered = Latitude + rnorm(n(), mean=0, sd=0.001))
+
+# Plot mortality timeline
+plot_timeline <- ggplot(na_birds_daily) +
+              geom_point(aes(x=YDay, y=n), colour="gray") +
+              geom_line(aes(x=YDay, y=n), colour="gray") +
+              geom_rect(data=na_birds_daily_sds,
+                        aes(xmin=1, xmax=366, ymin=0, ymax=Mean+SD*2), 
+                        fill="red", alpha=0.15) +
+              geom_point(data=na_birds_daily_flagged,
+                         aes(x=YDay, y=n), colour="red") +
+              geom_text(data=na_bird_events,
+                        aes(x=Label_X, y=Label_Y, label=Event_ID),
+                        position=position_dodge2(width=1)) +
+              facet_wrap(facets=vars(Year), nrow=3, ncol=1) +
+              xlab("Day of year") +
+              ylab("No. observed deaths") +
+              ggtitle("iNat dead birds, USA and Canada (red shows Mean+2SD for each year)") +
+              theme_bw() +
+              theme(strip.background=element_rect(fill="white", colour="black"),
+                    plot.title=element_text(hjust=0.5))
+
+# Plot little map for each event
+
+# base map
+north_america <- ne_countries(continent = "North America", returnclass = "sf")
+
+event_sample_sizes <- na_bird_events_locations |>
+                   group_by(Event_ID) |>
+                   tally() |>
+                   pull(n, name=Event_ID)
+
+plot_event_maps <- ggplot(north_america) +
+                geom_sf(fill="white", colour=alpha("black", 0.2)) +
+                geom_point(data=na_bird_events_locations,
+                           aes(x=Longitude, y=Latitude),
+                           colour="red") +
+                geom_density2d_filled(data=na_bird_events_locations,
+                                      aes(x=Longitude_Jittered, y=Latitude_Jittered),
+                                      contour_var="ndensity") +
+                facet_wrap(facets=vars(Event_ID), nrow=4, ncol=5, 
+                           labeller = as_labeller( ~ paste0("Event ", ., " (n = ", event_sample_sizes[.], ")"))) +
+                theme_bw() +
+                theme(panel.grid=element_blank(),
+                      strip.background=element_rect(colour="black", fill="white"),
+                      axis.title=element_blank(),
+                      axis.text=element_blank(),
+                      axis.ticks=element_blank())
+
+plots <- plot_timeline / plot_event_maps
+
+ggsave(filename="example_mortality_timeline_maps.png", plot=plots, width=7, height=10)
+

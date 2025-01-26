@@ -1,0 +1,12 @@
+name: iNat_Shiny
+title: iNat_Shiny
+username: diego-ellis-soto
+account: diego-ellis-soto
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 13810721
+bundleId: 9700970
+url: https://diego-ellis-soto.shinyapps.io/iNat_Shiny/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

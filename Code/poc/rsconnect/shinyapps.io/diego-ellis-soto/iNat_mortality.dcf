@@ -1,0 +1,13 @@
+name: iNat_mortality
+title: iNat_mortality
+username: diego-ellis-soto
+account: diego-ellis-soto
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 13810707
+bundleId: 9700950
+url: https://diego-ellis-soto.shinyapps.io/iNat_mortality/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: iNat_mortalitya_detector.R|query_param.R|Shinvy_v2.R|Shiny_v1.R|Shiny_v2_with_all_records.R|Shiny_v3.R|Shiny_v4.R

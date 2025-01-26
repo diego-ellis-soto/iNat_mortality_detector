@@ -1,0 +1,26 @@
+{
+    "id": "181834CA",
+    "path": "~/Desktop/Projects/Postdoc/iNat_mortality_detector/iNat_Shiny/app.R",
+    "project_path": "iNat_Shiny/app.R",
+    "type": "r_source",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1737873415268.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "672,0",
+        "scrollLine": "19"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1737873553,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1737873553918,
+    "read_only": false,
+    "read_only_alternatives": []
+}

@@ -1,0 +1,192 @@
+#################################################
+# waterfowl_mortality_analysis.R
+# ----------------------------------------------
+# This script retrieves "Dead" birds or mammals from iNaturalist,
+# within a specified bounding box (California as default) and years.
+# It generates:
+#   - Daily mortality time-series plot
+#   - Top-20 species bar chart
+#   - Hotspots map of top 90th percentile mortality days
+# It also saves the retrieved data and plots to a specified output directory.
+#
+# Author: [Your Name]
+# Date:   [Date]
+#################################################
+
+### Required Packages
+# Install missing packages if not already installed
+required_packages <- c(
+  "httr", "jsonlite", "tidyverse", "glue", "lubridate",
+  "wesanderson", "viridis"
+)
+
+installed_packages <- rownames(installed.packages())
+for (pkg in required_packages) {
+  if (!pkg %in% installed_packages) {
+    install.packages(pkg, dependencies = TRUE)
+  }
+}
+
+# Load libraries
+library(httr)
+library(jsonlite)
+library(tidyverse)
+library(glue)
+library(lubridate)
+library(wesanderson)
+library(viridis)
+
+#########################################################
+# A) fetch_dead_data_once(): Single date-range query
+#########################################################
+fetch_dead_data_once <- function(
+    place_id    = NULL,
+    swlat       = NULL,
+    swlng       = NULL,
+    nelat       = NULL,
+    nelng       = NULL,
+    start_date,
+    end_date,
+    iconic_taxa = "Aves",  # Default to Birds ("Aves")
+    per_page    = 1000,
+    max_pages   = 50
+) {
+  base_url <- "https://api.inaturalist.org/v1/observations"
+  
+  query_params <- glue(
+    "iconic_taxa={iconic_taxa}&",  # Specify iconic taxon (Aves or Mammalia)
+    "q=Dead&",                    # Search keyword "Dead"
+    "term_id=17&",                # "Alive or Dead" annotation
+    "term_value_id=19&",          # "Dead" value
+    "verifiable=true&",
+    "d1={start_date}&d2={end_date}&",
+    "order=desc&order_by=created_at&",
+    "per_page={per_page}"
+  )
+  
+  # Build location parameters
+  loc_part <- ""
+  if (!is.null(place_id)) {
+    loc_part <- glue("&place_id={place_id}")
+  } else if (!is.null(swlat) && !is.null(swlng) && !is.null(nelat) && !is.null(nelng)) {
+    loc_part <- glue("&nelat={nelat}&nelng={nelng}&swlat={swlat}&swlng={swlng}")
+  } else {
+    stop("Must provide either 'place_id' OR bounding box (swlat, swlng, nelat, nelng).")
+  }
+  
+  observations_list <- list()
+  current_page <- 1
+  
+  while (current_page <= max_pages) {
+    query_url <- paste0(
+      base_url, "?",
+      query_params,
+      "&page=", current_page,
+      loc_part
+    )
+    
+    message("Fetching page ", current_page,
+            " for date range [", start_date, " to ", end_date, "]: ", query_url)
+    
+    resp <- GET(query_url)
+    if (http_error(resp)) {
+      warning("HTTP error on page ", current_page, ": ", status_code(resp))
+      break
+    }
+    
+    parsed <- content(resp, as = "text", encoding = "UTF-8") %>%
+      fromJSON(flatten = TRUE)
+    
+    if (length(parsed$results) == 0) {
+      message("No more results at page ", current_page)
+      break
+    }
+    
+    obs_page_df <- as_tibble(parsed$results)
+    observations_list[[current_page]] <- obs_page_df
+    
+    if (nrow(obs_page_df) < per_page) {
+      message("Reached last page of results at page ", current_page)
+      break
+    }
+    
+    current_page <- current_page + 1
+    Sys.sleep(1)  # Small pause to respect API rate limits
+  }
+  
+  observations_all <- bind_rows(observations_list)
+  return(observations_all)
+}
+
+#########################################################
+# B) fetch_dead_data_monthly(): Split into 12 monthly intervals
+#########################################################
+fetch_dead_data_monthly <- function(
+    year,
+    place_id   = NULL,
+    swlat      = NULL,
+    swlng      = NULL,
+    nelat      = NULL,
+    nelng      = NULL,
+    iconic_taxa = "Aves"  # Default to Birds
+) {
+  monthly_list <- list()
+  
+  for (month_i in 1:12) {
+    start_date <- as.Date(glue("{year}-{sprintf('%02d', month_i)}-01"))
+    end_date   <- start_date %m+% months(1) %m-% days(1)
+    
+    if (year(start_date) != year) break
+    
+    message("\n--- Querying year ", year, ", month ", month_i, " ---\n")
+    
+    df_month <- fetch_dead_data_once(
+      place_id  = place_id,
+      swlat     = swlat,
+      swlng     = swlng,
+      nelat     = nelat,
+      nelng     = nelng,
+      start_date= start_date,
+      end_date  = end_date,
+      iconic_taxa = iconic_taxa
+    )
+    monthly_list[[month_i]] <- df_month
+  }
+  
+  year_df <- bind_rows(monthly_list)
+  return(year_df)
+}
+
+#########################################################
+# Example Usage: Download Dead Birds in California
+#########################################################
+
+# California bounding box
+swlat <- 32.5
+swlng <- -124.5
+nelat <- 42.0
+nelng <- -114.1
+
+# Fetch data for dead birds in 2022 and 2023
+dead_birds_data <- fetch_dead_data_monthly(
+  year       = 2022,
+  swlat      = swlat,
+  swlng      = swlng,
+  nelat      = nelat,
+  nelng      = nelng,
+  iconic_taxa = "Aves"
+)
+
+# Fetch data for dead mammals in 2022
+dead_mammals_data <- fetch_dead_data_monthly(
+  year       = 2022,
+  swlat      = swlat,
+  swlng      = swlng,
+  nelat      = nelat,
+  nelng      = nelng,
+  iconic_taxa = "Mammalia"
+)
+
+# View the first 5 rows of the dataset
+head(dead_birds_data, 5)
+head(dead_mammals_data, 5)

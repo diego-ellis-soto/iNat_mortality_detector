@@ -1,0 +1,78 @@
+# Download inaturalist data for the city nature challenge:
+
+library(tidycensus)
+library(sf)
+library(dplyr)
+library(rinat)
+
+counties_list <- c(
+  "Los Angeles",
+  "San Diego",
+  "San Francisco",
+  "Marin",
+  "Sonoma",
+  "Napa",
+  "Solano",
+  "Contra Costa",
+  "Alameda",
+  "Santa Clara",
+  "San Mateo"
+)
+
+# --------------------------------------------------
+# 4) Helper Function to Retrieve iNaturalist Data
+#    for a Single County
+# --------------------------------------------------
+get_inat_for_county <- function(county_name) {
+  
+  # Get the geometry for the county via tidycensus
+  geo <- get_acs(
+    geography = "county",
+    variables = "B19013_001",  # any single variable; we just want geometry
+    state = "CA",
+    county = county_name,
+    geometry = TRUE
+  )
+  
+  # Extract bounding box from the sf geometry
+  bb <- st_bbox(geo)
+  
+  # iNaturalist wants bounding box in the form:
+  #   c(lat_min, lng_min, lat_max, lng_max)
+  # st_bbox returns: c(xmin, ymin, xmax, ymax) which is (lon, lat, lon, lat)
+  # So reorder accordingly:
+  bounds <- c(bb$ymin, bb$xmin, bb$ymax, bb$xmax)
+  
+  # Retrieve iNaturalist observations for all taxa, 
+  # capping at 10 million results
+  inat_data <- get_inat_obs(
+    bounds     = bounds,
+    maxresults = 1e7  # 10 million
+  )
+  
+  # Optionally, tag the county in the results
+  inat_data$county_name <- county_name
+  
+  return(inat_data)
+}
+
+LA_iNat <- lapply(counties_list[1], get_inat_for_county)
+SD_iNat
+SF_iNat
+
+
+# --------------------------------------------------
+# 5) Loop Over Counties, Retrieve & Combine
+# --------------------------------------------------
+county_inat_data <- lapply(counties_list, get_inat_for_county)
+all_inat_data    <- bind_rows(county_inat_data)
+
+# all_inat_data now contains observations from:
+#   - Los Angeles County
+#   - San Diego County
+#   - SF Bay Area (9 counties listed)
+#
+# Inspect or save:
+# head(all_inat_data)
+# saveRDS(all_inat_data, "inat_cal_counties.rds")
+
