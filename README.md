@@ -15,6 +15,18 @@ This tool is powered by **R** and **Shiny**, leveraging reproducible workflows a
 ## Installation
 Clone the repository
 
+The framework provides an intuitive and interactive interface for analyzing wildlife mortality data. Below are screenshots showcasing the key components:
+
+### 1. Interactive Map
+![Interactive Map](assets/screenshot1.png)
+
+This interactive map highlights mortality hotspots for various species, enabling easy visualization of trends across regions.
+
+### 2. Species Analysis Dashboard
+![Species Analysis Dashboard](assets/screenshot2.png)
+
+The dashboard allows users to delve deeper into mortality patterns, filter by species, and generate reports.
+
 Designed by Diego Ellis Soto
 email: diego.ellissoto@berkeley.edu
 
