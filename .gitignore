@@ -2,5 +2,5 @@ outputs/
 .DS_Store
 .Rhistory
 .Rproj.user
-indir/
+indir/hmod_americas_masked.tif
 outdir/roads_cali.Rdata
