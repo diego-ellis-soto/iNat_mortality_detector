@@ -1,0 +1,18 @@
+install.packages(c(
+  "leaflet.extras",
+  "leaflet",
+  "mapdata",
+  "maps",
+  "DT",
+  "shiny",
+  "shinythemes",
+  "shinycssloaders",
+  "viridis",
+    "hexbin",
+    "arrow",
+  "wesanderson",
+  "lubridate",
+  "glue",
+  "tidyverse",
+  "jsonlite",
+  "httr"))
