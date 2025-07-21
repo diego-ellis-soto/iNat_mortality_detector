@@ -38,6 +38,6 @@ Designed by Diego Ellis Soto email: [diego.ellissoto\@berkeley.edu](mailto:diego
 
 ### 3. Folder structure:
 
-Necessary code to replicate the figures and analysis of the maniscript are located in folder src/analysis/ms_analysis_figures.R
+Necessary code to replicate the figures and analysis of the manuscript are located in folder src/analysis/ms_analysis_figures.R
 
 Necessary code, package dependencies and Docker container to replicate our Shiny Web app can be found in our folder src/Huggingface_Shiny_App/
