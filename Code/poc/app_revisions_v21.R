@@ -1,28 +1,14 @@
-# Update text 
 
-# Next steps -> Ask Lizzy About page and the How to Use page
-# Ask Carl for feedback
-# Ask Avery for feedback
-# Threatened species -> Use the life query critically endangered species
-# Ask Avery -> Could be fun with taxonomy plot? but not needed
-# Redo every case study
-# Try out different shapes
 ####################################################################################################
 # app.R
 #
 # Dead Wildlife Observations from iNaturalist
-#
-# FULL INTEGRATED SHINY APP
-#
 # --------------------------------------------------------------------------------------------------
 # PURPOSE
 # --------------------------------------------------------------------------------------------------
 # This application supports exploration of dead wildlife observations from iNaturalist in both:
 #   1) archived mode (remote parquet snapshot)
 #   2) live mode (dynamic iNaturalist API queries)
-#
-# The app is designed for near real-time ecological surveillance, exploratory analysis, and
-# hypothesis generation around wildlife mortality patterns.
 #
 # --------------------------------------------------------------------------------------------------
 # MAJOR FEATURES
@@ -80,9 +66,6 @@
 #     conservation-status information consistently across records
 #   - therefore, threat-status filtering in archived mode should be treated as LIMITED relative
 #     to live mode
-#
-####################################################################################################
-
 ####################################################################################################
 # PACKAGES
 ####################################################################################################
@@ -1177,35 +1160,6 @@ make_sampling_note <- function(metric_type) {
   "Sampling note: observations per observer partially adjusts for effort, but it is still not a formal bias-corrected rate."
 }
 
-# make_query_metadata <- function(input, bbox, mode, diagnostics, n_records) {
-#   list(
-#     timestamp = as.character(Sys.time()),
-#     data_source = mode,
-#     bbox = list(
-#       swlat = bbox[1],
-#       swlng = bbox[2],
-#       nelat = bbox[3],
-#       nelng = bbox[4]
-#     ),
-#     date_range = list(
-#       start = as.character(input$date_range[1]),
-#       end   = as.character(input$date_range[2])
-#     ),
-#     time_aggregation = input$time_bin,
-#     metric_type = input$metric_type,
-#     show_smoother = isTRUE(input$show_smoother),
-#     filter_mode = input$filter_mode,
-#     taxonomy_query_type = if (input$filter_mode == "taxonomy") input$query_type else NULL,
-#     iconic_taxon = if (input$filter_mode == "taxonomy") input$iconic_taxon else NULL,
-#     order_name = if (input$filter_mode == "taxonomy") input$order_name else NULL,
-#     family_name = if (input$filter_mode == "taxonomy") input$family_name else NULL,
-#     taxon_name_input = if (input$filter_mode == "taxonomy") input$taxon_name_input else NULL,
-#     threat_status = if (input$filter_mode == "status") input$threat_status else NULL,
-#     returned_records = n_records,
-#     threat_status_mode = make_filter_status_mode_label(mode, input$filter_mode),
-#     diagnostics = diagnostics
-#   )
-# }
 
 make_query_metadata <- function(input, bbox, mode, diagnostics, n_records) {
   validate_bbox(bbox)
@@ -1343,17 +1297,6 @@ make_daily_plot <- function(
     ) +
     coord_cartesian(clip = "off") +
     theme_minimal(base_size = 14) +
-    # theme(
-    #   plot.title        = element_text(face = "bold"),
-    #   plot.subtitle     = element_text(color = "grey30"),
-    #   axis.text.x       = element_text(angle = 45, hjust = 1, vjust = 1, color = "black"),
-    #   axis.text.y       = element_text(color = "black"),
-    #   axis.title.x      = element_text(face = "bold", margin = margin(t = 20)),
-    #   axis.title.y      = element_text(face = "bold", margin = margin(r = 20)),
-    #   panel.grid.minor  = element_blank(),
-    #   # plot.margin       = margin(t = 12, r = 18, b = 28, l = 28)
-    #   plot.margin = margin(t = 12, r = 18, b = 50, l = 28)
-    # )
     theme(
       plot.title        = element_text(face = "bold", size = 20),
       plot.subtitle     = element_text(color = "grey30", size = 12),
@@ -3083,38 +3026,7 @@ server <- function(input, output, session) {
         editOptions = editToolbarOptions()
       )
   })
-  
-  # observeEvent(input$select_map_draw_new_feature, {
-  #   feat <- input$select_map_draw_new_feature
-  #   if (!is.null(feat$geometry) && feat$geometry$type == "Polygon") {
-  #     coords <- feat$geometry$coordinates[[1]]
-  #     lngs <- vapply(coords, function(x) x[[1]], numeric(1))
-  #     lats <- vapply(coords, function(x) x[[2]], numeric(1))
-  #     rv$bbox <- c(min(lats), min(lngs), max(lats), max(lngs))
-  #     rv$query_token <- rv$query_token + 1
-  #   }
-  # })
-  # 
-  # observeEvent(input$select_map_draw_deleted_features, {
-  #   rv$bbox <- NULL
-  #   rv$query_token <- rv$query_token + 1
-  # })
-  # 
-  # observeEvent(input$select_map_draw_edited_features, {
-  #   if (!is.null(input$select_map_draw_all_features)) {
-  #     feats <- input$select_map_draw_all_features$features
-  #     if (length(feats) > 0) {
-  #       feat <- feats[[length(feats)]]
-  #       if (!is.null(feat$geometry) && feat$geometry$type == "Polygon") {
-  #         coords <- feat$geometry$coordinates[[1]]
-  #         lngs <- vapply(coords, function(x) x[[1]], numeric(1))
-  #         lats <- vapply(coords, function(x) x[[2]], numeric(1))
-  #         rv$bbox <- c(min(lats), min(lngs), max(lats), max(lngs))
-  #         rv$query_token <- rv$query_token + 1
-  #       }
-  #     }
-  #   }
-  # })
+
   
   observeEvent(input$select_map_draw_new_feature, {
     feat <- input$select_map_draw_new_feature
@@ -3236,44 +3148,6 @@ server <- function(input, output, session) {
     
     bbox <- bbox_from_sf(study_area)
     
-    # leafletProxy("select_map") %>%
-    #   clearGroup("search_bbox") %>%
-    #   addRectangles(
-    #     lng1 = bbox[2],
-    #     lat1 = bbox[1],
-    #     lng2 = bbox[4],
-    #     lat2 = bbox[3],
-    #     fillColor = "red",
-    #     fillOpacity = 0.1,
-    #     color = "red",
-    #     group = "search_bbox"
-    #   ) %>%
-    #   fitBounds(
-    #     lng1 = bbox[2],
-    #     lat1 = bbox[1],
-    #     lng2 = bbox[4],
-    #     lat2 = bbox[3]
-    #   )
-   
-    # leafletProxy("select_map") %>%
-    #   clearGroup("search_bbox") %>%
-    #   addRectangles(
-    #     lng1 = as.numeric(bbox$swlng),
-    #     lat1 = as.numeric(bbox$swlat),
-    #     lng2 = as.numeric(bbox$nelng),
-    #     lat2 = as.numeric(bbox$nelat),
-    #     fillColor = "red",
-    #     fillOpacity = 0.1,
-    #     color = "red",
-    #     group = "search_bbox"
-    #   ) %>%
-    #   fitBounds(
-    #     lng1 = as.numeric(bbox$swlng),
-    #     lat1 = as.numeric(bbox$swlat),
-    #     lng2 = as.numeric(bbox$nelng),
-    #     lat2 = as.numeric(bbox$nelat)
-    #   )
-    
     map_proxy <- leafletProxy("select_map") %>%
       clearGroup("search_bbox") %>%
       addPolygons(
@@ -3318,26 +3192,6 @@ server <- function(input, output, session) {
   ##################################################################################################
   # RUN QUERY
   ##################################################################################################
-  # observeEvent(input$run_query, {
-  #   req(input$date_range)
-  #   req(rv$bbox)
-  #   
-  #   start_date <- as.Date(input$date_range[1])
-  #   end_date   <- as.Date(input$date_range[2])
-  #   
-  #   swlat <- rv$bbox[1]
-  #   swlng <- rv$bbox[2]
-  #   nelat <- rv$bbox[3]
-  #   nelng <- rv$bbox[4]
-  #   
-  #   diagnostics <- list(
-  #     weekly_windows = 0,
-  #     weeks_subdivided_to_days = 0,
-  #     days_subdivided_to_halfdays = 0,
-  #     windows_hit_limit = 0,
-  #     total_rows = 0,
-  #     adaptive_used = FALSE
-  #   )
   
   observeEvent(input$run_query, {
     req(input$date_range)
@@ -3426,65 +3280,13 @@ server <- function(input, output, session) {
       numeric(1)
     ), na.rm = TRUE)
     
-    
-    
-    # if (!crosses_antimeridian) {
-    #   rv$total_obs_count <- fetch_total_observation_count(
-    #     swlat = swlat,
-    #     swlng = swlng,
-    #     nelat = nelat,
-    #     nelng = nelng,
-    #     start_date = start_date,
-    #     end_date = end_date,
-    #     iconic_taxa = iconic_for_count,
-    #     taxon_name = taxon_for_count,
-    #     threatened_flag = threatened_for_count
-    #   )
-    # } else {
-    #   count_left <- fetch_total_observation_count(
-    #     swlat = swlat,
-    #     swlng = swlng,
-    #     nelat = nelat,
-    #     nelng = 180,
-    #     start_date = start_date,
-    #     end_date = end_date,
-    #     iconic_taxa = iconic_for_count,
-    #     taxon_name = taxon_for_count,
-    #     threatened_flag = threatened_for_count
-    #   )
-    #   
-    #   count_right <- fetch_total_observation_count(
-    #     swlat = swlat,
-    #     swlng = -180,
-    #     nelat = nelat,
-    #     nelng = nelng,
-    #     start_date = start_date,
-    #     end_date = end_date,
-    #     iconic_taxa = iconic_for_count,
-    #     taxon_name = taxon_for_count,
-    #     threatened_flag = threatened_for_count
-    #   )
-    #   
-    #   rv$total_obs_count <- sum(count_left, count_right, na.rm = TRUE)
-    # }
-    # 
-    
     ################################################################################################
     # ARCHIVED MODE
     ################################################################################################
     if (input$data_source == "archived") {
       
       inat_all_raw <- arrow::read_parquet(parquet_path)
-      
-      # inat_all <- inat_all_raw %>%
-      #   filter(!is.na(latitude) & !is.na(longitude)) %>%
-      #   filter(
-      #     latitude  >= swlat,
-      #     latitude  <= nelat,
-      #     longitude >= swlng,
-      #     longitude <= nelng
-      #   ) |>
-      #   collect()
+
       
       archived_parts <- lapply(query_windows, function(w) {
         inat_all_raw %>%
