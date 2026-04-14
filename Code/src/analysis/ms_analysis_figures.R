@@ -15,44 +15,34 @@
 #
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
 
-library(ggplot2)
-library(units)
-require(sp)
-require(sf)
-require(tidycensus)
-require(tigris)
-require(tidyverse)
-options(tigris_use_cache = TRUE)
-census_api_key('88f3fbb46861a0190c673e39c99bd3c067f15072', install = TRUE, overwrite = TRUE)
-require(raster)
-# https://gis.stackexchange.com/questions/119993/convert-line-shapefile-to-raster-value-total-length-of-lines-within-cell
-# https://catalog.data.gov/dataset/enviroatlas-road-density-metrics-by-12-digit-huc-for-the-conterminous-united-states3
-require(tigris)
-options(tigris_use_cache = TRUE)
 library(tidyverse)
-library(sf)
-library(tidycensus)
 library(ggplot2)
-library(tidyverse)
+library(scales)
+library(forcats)
 library(sf)
-library(tidycensus)
-library(ggplot2)
-require(mapview)
-require(gridExtra)
-require(patchwork)
-require(mapview)
-library(units)
 library(raster)
-library(sf)
-library(tidyverse)
-library(ggplot2)
+library(units)
+library(tidycensus)
+library(tigris)
+library(mapview)
 library(viridis)
+library(cowplot)
+library(patchwork)
+library(gridExtra)
+library(ggimage)
 library(rnaturalearth)
 library(rnaturalearthdata)
-library(cowplot)  # for arranging plots if needed
-library(ggplot2)
-library(ggimage)
-require(patchwork)
+library(arrow)
+library(treemapify)
+library(tidygraph)
+library(ggraph)
+library(ineq)
+library(sp)
+require(tigris)
+options(tigris_use_cache = TRUE)
+census_api_key('88f3fbb46861a0190c673e39c99bd3c067f15072', install = TRUE, overwrite = TRUE)
+# https://gis.stackexchange.com/questions/119993/convert-line-shapefile-to-raster-value-total-length-of-lines-within-cell
+# https://catalog.data.gov/dataset/enviroatlas-road-density-metrics-by-12-digit-huc-for-the-conterminous-united-states3
 
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
 # Figure 2 California ####
@@ -93,6 +83,11 @@ california <- states(year = 2022) %>%
 
 inat <- read.csv("indir/California_inat_dead_ALL_2025-02-15.csv", 
                  stringsAsFactors = FALSE)
+
+# Resubmission:
+inat <- read.csv('indir/resubmission_case_studies/California_mammals_inat_dead_filtered_2026-04-11.csv', 
+                 stringsAsFactors = FALSE)
+
 range(inat$time_observed_at, na.rm=T)
 
 # Step 2: Parse lat/lon from the "location" column
@@ -140,7 +135,7 @@ sampling_across_cali = ggplot() +
         axis.title.x = element_text(face = "bold", size = 16 ,color='black'),
         axis.text.y = element_text(face = "bold", size = 16 ,color='black'),
         axis.title.y = element_text(face = "bold", size = 16 ,color='black'))
-ggsave(sampling_across_cali, file = 'outdir/mortality_sampling_cali.png')
+ggsave(sampling_across_cali, file = 'outdir/resubmission_mortality_sampling_cali.png')
 
 # --- --- --- --- --- --- --- --- --- --- ---
 # Distance to nearest road:
@@ -178,7 +173,20 @@ dist2road = ggplot(inat_sf_3310_cali_only, aes(x = (dist_to_road_m))) +
   xlim( c(as.numeric(0), as.numeric(round(quantile(inat_sf_3310_cali_only$dist_to_road_m, 0.99)))  ) )
 # theme(legend.position="none") # Remove legend
 
-ggsave(dist2road, file = 'outdir/dist2road_cali.png')
+ggsave(dist2road, file = 'outdir/resubmission_dist2road_cali.png')
+
+
+# total number of records
+n_total <- nrow(inat_sf_3310_cali_only)
+
+# % within thresholds
+pct_10m  <- mean(inat_sf_3310_cali_only$dist_to_road_m <= 10) * 100
+pct_100m  <- mean(inat_sf_3310_cali_only$dist_to_road_m <= 100) * 100
+pct_250m  <- mean(inat_sf_3310_cali_only$dist_to_road_m <= 250) * 100
+pct_500m  <- mean(inat_sf_3310_cali_only$dist_to_road_m <= 500) * 100
+pct_1000m <- mean(inat_sf_3310_cali_only$dist_to_road_m <= 1000) * 100
+n_100m <- sum(inat_sf_3310_cali_only$dist_to_road_m <= 100)
+quantile(inat_sf_3310_cali_only$dist_to_road_m, probs = c(0.25, 0.5, 0.75, 0.9))
 
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
 # Human modification
@@ -203,7 +211,7 @@ hmod_space_cali = ggplot() +
         axis.title.x = element_text(face = "bold", size = 16 ,color='black'),
         axis.text.y = element_text(face = "bold", size = 16 ,color='black'),
         axis.title.y = element_text(face = "bold", size = 16 ,color='black'))
-ggsave(hmod_space_cali, file = 'outdir/hmod_space_cali.png')
+ggsave(hmod_space_cali, file = 'outdir/resubmission_hmod_space_cali.png')
 
 
 hmod_hist_cali = ggplot(inat_california_3310, aes(x = human_mod)) +
@@ -223,10 +231,36 @@ hmod_hist_cali = ggplot(inat_california_3310, aes(x = human_mod)) +
         axis.title.x = element_text(face = "bold", size = 16 ,color='black'),
         axis.text.y = element_text(face = "bold", size = 16 ,color='black'),
         axis.title.y = element_text(face = "bold", size = 16 ,color='black'))
-ggsave(hmod_hist_cali, file = '/Users/diegoellis/Desktop/Projects/Postdoc/hmod_hist_cali_cali.png')
+ggsave(hmod_hist_cali, file = 'outdir/resubmission_hmod_hist_cali_cali.png')
 
 sampling_across_cali + hmod_hist_cali / dist2road
 
+dist2road_ecdf <- ggplot(inat_sf_3310_cali_only, aes(x = dist_to_road_m)) +
+  stat_ecdf(geom = "step", linewidth = 1.2, color = "#0072B2") +
+  geom_vline(xintercept = 100, linetype = "dashed", color = "red", linewidth = 1) +
+  annotate(
+    "text",
+    x = 120,
+    y = 0.2,
+    label = paste0(
+      round(mean(inat_sf_3310_cali_only$dist_to_road_m <= 100, na.rm = TRUE) * 100, 1),
+      "% within 100 m"
+    ),
+    hjust = 0,
+    color = "red",
+    size = 5
+  ) +
+  labs(
+    x = "Distance to nearest road (m)",
+    y = "Cumulative proportion of records"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(face = "bold", size = 16, color = "black"),
+    axis.title.x = element_text(face = "bold", size = 16, color = "black"),
+    axis.text.y = element_text(face = "bold", size = 16, color = "black"),
+    axis.title.y = element_text(face = "bold", size = 16, color = "black")
+  )
 
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
 # Income - Not used in Manuscript
@@ -274,7 +308,7 @@ ggplot_income <- ggplot() +
         axis.title.x = element_text(face = "bold", size = 16, color = "black"),
         axis.text.y = element_text(face = "bold", size = 16, color = "black"),
         axis.title.y = element_text(face = "bold", size = 16, color = "black"))
-ggsave(ggplot_income, file = 'outdir/ggplot_income_cali.png')
+ggsave(ggplot_income, file = 'outdir/resubmission_ggplot_income_cali.png')
 
 
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
@@ -316,7 +350,7 @@ hexbin_plot <- ggplot() +
   theme_minimal()
 
 # Save the plot to a file supplementary figure 2
-ggsave(hexbin_plot, filename = 'outdir/hexbin_roads_inat.png', width = 8, height = 6)
+ggsave(hexbin_plot, filename = 'outdir/resubmission_hexbin_roads_inat.png', width = 8, height = 6)
 
 hexbin_by_road <- ggplot(inat_near_roads, 
                          aes(x = st_coordinates(inat_near_roads)[,1], y = st_coordinates(inat_near_roads)[,2])) +
@@ -331,15 +365,8 @@ hexbin_by_road <- ggplot(inat_near_roads,
   ) +
   theme_minimal()
 
-ggsave(hexbin_by_road, filename = 'outdir/hexbin_by_road.png', width = 8, height = 6)
+ggsave(hexbin_by_road, filename = 'outdir/resubmission_hexbin_by_road.png', width = 8, height = 6)
 # Patchwork them together for Figure 2 of the MS:
-
-# For puma concolor
-# Bounding box:
-#   SW corner: (-64.0721995786728, -165.294524913526)
-# NE corner: (82.8806662722686, -24.5820567201415)
-# 
-
 
 # --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
 # Analysis 3 - Latin America - Animalia   
@@ -359,9 +386,18 @@ animalia |> filter(taxon.conservation_status.status_name == 'critically endanger
 world <- ne_countries(scale = "medium", returnclass = "sf")
 americas <- ne_countries(continent = c("South America", 'North America', 'Central America'))
 
+# For puma concolor
+# Bounding box:
+#   SW corner: (-64.0721995786728, -165.294524913526) 
+# NE corner: (82.8806662722686, -24.5820567201415)
+# 
 
 puma = read.csv('indir/puma_concolor_inat_dead_ALL_2025-06-20 (1).csv',
                 stringsAsFactors = FALSE)
+
+puma = read.csv('indir/resubmission_case_studies/puma_case_study_inat_dead_filtered_2026-04-11.csv',
+                stringsAsFactors = FALSE)
+
 
 puma_range <- st_read('indir/redlist_species_data_0df88387-092f-4347-a28b-a17db80c88bc/data_0.shp')
 
@@ -382,7 +418,7 @@ puma_range$layer <- "Range Map"
 bbox <- st_bbox(puma_sf)
 
 # Expand by ~0.9 degrees (~100 km)
-expand_deg <- 2
+expand_deg <- 4
 
 bbox_expanded <- bbox
 bbox_expanded["xmin"] <- bbox["xmin"] - expand_deg
@@ -448,7 +484,7 @@ puma_map <- ggplot() +
 
 puma_map
 
-ggsave("outdir/puma_map_highres.png", plot = puma_map,
+ggsave("outdir/resubmission_puma_map_highres.png", plot = puma_map,
        width = 12, height = 10, units = "in", dpi = 1000, bg = "transparent")
 
 
@@ -474,58 +510,466 @@ df = puma_sf_with_country %>%
 #   count = c(17, 3, 4, 4, 1, 2, 1, 9, 44)
 # )
 
-# Adding flag image URLs
-df$flag <- c("https://flagcdn.com/w40/ar.png", 
-             "https://flagcdn.com/w40/br.png",
-             "https://flagcdn.com/w40/ca.png",
-             "https://flagcdn.com/w40/cl.png",
-             "https://flagcdn.com/w40/co.png",
-             "https://flagcdn.com/w40/cr.png",
-             "https://flagcdn.com/w40/gf.png",  # French Guiana
-             #     'https://upload.wikimedia.org/wikipedia/commons/6/6e/Flag_of_French_Guiana.svg',
-             "https://flagcdn.com/w40/mx.png",
-             "https://flagcdn.com/w40/us.png")
-
-flag_lookup <- tibble::tibble(
-  country = c("Argentina", "Brazil", "Canada", "Chile", "Colombia", "Costa Rica", 
-              "France", "Mexico", "United States of America"),
-  code = c("ar", "br", "ca", "cl", "co", "cr", "fr", "mx", "us")
-)
-
-# 3. Join to main df
-df <- df %>%
-  left_join(flag_lookup, by = "country") %>%
-  mutate(flag = paste0("https://flagcdn.com/w40/", code, ".png"))
+# # Adding flag image URLs
+# df$flag <- c("https://flagcdn.com/w40/ar.png", 
+#              "https://flagcdn.com/w40/br.png",
+#              "https://flagcdn.com/w40/ca.png",
+#              "https://flagcdn.com/w40/cl.png",
+#              "https://flagcdn.com/w40/co.png",
+#              "https://flagcdn.com/w40/cr.png",
+#              "https://flagcdn.com/w40/gf.png",  # French Guiana
+#              # "https://flagcdn.com/w40/guf.png",  # French Guiana
+#              #     'https://upload.wikimedia.org/wikipedia/commons/6/6e/Flag_of_French_Guiana.svg',
+#              "https://flagcdn.com/w40/mx.png",
+#              "https://flagcdn.com/w40/us.png")
+# 
+# flag_lookup <- tibble::tibble(
+#   country = c("Argentina", "Brazil", "Canada", "Chile", "Colombia", "Costa Rica", 
+#               "French Guiana", "Mexico", "United States of America"),
+#   code = c("ar", "br", "ca", "cl", "co", "cr", "gf", "mx", "us")
+# )
 # 
 # df <- df %>%
+#   mutate(country = if_else(country == "France", "French Guiana", country))
+# 
+# # 3. Join to main df
+# df <- df %>%
 #   left_join(flag_lookup, by = "country") %>%
-#   mutate(flag = ifelse(!is.na(code), 
-#                        paste0("https://flagcdn.com/w40/", code, ".png"), 
-#                        as.character(flag)))
+#   mutate(flag = paste0("https://flagcdn.com/w40/", code, ".png"))
+# # 
+# # df <- df %>%
+# #   left_join(flag_lookup, by = "country") %>%
+# #   mutate(flag = ifelse(!is.na(code), 
+# #                        paste0("https://flagcdn.com/w40/", code, ".png"), 
+# #                        as.character(flag)))
 
-# Create the barplot
+# # Create the barplot
+# puma_death <- ggplot(df, aes(x = reorder(country, count), y = count)) +
+#   geom_bar(stat = "identity", fill = "grey") +
+#   # Place flag images slightly above each bar
+#   geom_image(aes(y = count + 1, image = flag), size = 0.08) +
+#   coord_flip() +
+#   labs(x = "Country", y = "Death Count",
+#        title = "Mountain Lion Deaths (2022-2025)") +
+#   theme_bw() +  # Use a clean black & white theme
+#   theme(
+#     axis.text.x = element_text(face = "bold", size = 16, color = "black"),
+#     axis.text.y = element_text(face = "bold", size = 16, color = "black"),  # Country names bold & black
+#     axis.title.x = element_text(face = "bold", size = 16, color = "black"),
+#     axis.title.y = element_text(face = "bold", size = 16, color = "black"),
+#     plot.title = element_text(face = "bold", size = 18, hjust = 0.5, color = "black"),  # Bold title, centered
+#     legend.text = element_text(face = "bold", size = 14, color = "black"),
+#     legend.title = element_text(face = "bold", size = 16, color = "black")
+#   ) +
+#   # Move count labels further to the right for clarity
+#   geom_text(aes(y = count + 5, label = count), size = 6, fontface = "bold", color = "black")
+# 
+# 
+
+# Adress reviewer comment:
+
+library(dplyr)
+library(lubridate)
+
+puma <- puma %>%
+  mutate(
+    time = ymd_hms(time_observed_at)
+  )
+
+# potential duplicates: same day + close space (e.g., 100 m)
+library(dplyr)
+library(lubridate)
+library(geosphere)
+
+puma <- puma %>%
+  mutate(
+    time = ymd_hms(time_observed_at),
+    obs_week = floor_date(as.Date(observed_on), unit = "week")
+  )
+
+puma_dups <- puma %>%
+  arrange(obs_week, time) %>%
+  group_by(obs_week) %>%
+  mutate(
+    lag_dist_m = geosphere::distHaversine(
+      cbind(longitude, latitude),
+      cbind(lag(longitude), lag(latitude))
+    ),
+    lag_time_days = as.numeric(difftime(time, lag(time), units = "days"))
+  ) %>%
+  ungroup() %>%
+  filter(!is.na(lag_dist_m) & lag_dist_m < 10000)
+
+nrow(puma_dups)
+puma_dups
+
+
+
+# --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
+# Updated code bellow as new record from paraguay and a NA location
+# --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
+#
+# 1. Spatial join
+puma_sf_with_country <- st_join(
+  puma_sf,
+  world_countries[, c("admin", "iso_a3")],
+  left = TRUE
+)
+puma_sf_with_country <- st_join(
+  puma_sf,
+  world_countries[, c("admin", "iso_a3")],
+  left = TRUE
+)
+
+# 2. Hard-code unmatched point(s) to USA
+puma_sf_with_country <- puma_sf_with_country %>%
+  mutate(
+    admin = if_else(is.na(admin), "United States of America", admin),
+    iso_a3 = if_else(is.na(iso_a3), "USA", iso_a3)
+  )
+
+# 3. Count records by country
+df <- puma_sf_with_country %>%
+  st_drop_geometry() %>%
+  count(country = admin, name = "count") %>%
+  arrange(desc(count)) %>%
+  as_tibble()
+
+# 4. Recode France -> French Guiana before lookup
+df <- df %>%
+  mutate(
+    country = if_else(country == "France", "French Guiana", country)
+  )
+
+# 5. Flag lookup table
+flag_lookup <- tibble(
+  country = c(
+    "Argentina", "Brazil", "Canada", "Chile", "Colombia",
+    "Costa Rica", "French Guiana", "Mexico",
+    "United States of America", "Paraguay"
+  ),
+  code = c(
+    "ar", "br", "ca", "cl", "co",
+    "cr", "gf", "mx", "us", "py"
+  )
+)
+
+# 6. Join lookup and create flag URL
+df <- df %>%
+  left_join(flag_lookup, by = "country") %>%
+  mutate(
+    flag = paste0("https://flagcdn.com/w40/", code, ".png")
+  )
+
+# 7. Optional check for unmatched countries
+print(df %>% filter(is.na(code)))
+
+# 8. Create the barplot
 puma_death <- ggplot(df, aes(x = reorder(country, count), y = count)) +
-  geom_bar(stat = "identity", fill = "grey") +
-  # Place flag images slightly above each bar
-  geom_image(aes(y = count + 1, image = flag), size = 0.08) +
+  geom_col(fill = "grey") +
+  geom_image(
+    aes(y = count + 1, image = flag),
+    size = 0.08
+  ) +
+  geom_text(
+    aes(y = count + 5, label = count),
+    size = 6,
+    fontface = "bold",
+    color = "black"
+  ) +
   coord_flip() +
-  labs(x = "Country", y = "Death Count",
-       title = "Mountain Lion Deaths (2022-2025)") +
-  theme_bw() +  # Use a clean black & white theme
+  labs(
+    x = "Country",
+    y = "Death Count",
+    title = "Mountain Lion Deaths (2022–2025)"
+  ) +
+  theme_bw() +
   theme(
     axis.text.x = element_text(face = "bold", size = 16, color = "black"),
-    axis.text.y = element_text(face = "bold", size = 16, color = "black"),  # Country names bold & black
+    axis.text.y = element_text(face = "bold", size = 16, color = "black"),
     axis.title.x = element_text(face = "bold", size = 16, color = "black"),
     axis.title.y = element_text(face = "bold", size = 16, color = "black"),
-    plot.title = element_text(face = "bold", size = 18, hjust = 0.5, color = "black"),  # Bold title, centered
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5, color = "black"),
     legend.text = element_text(face = "bold", size = 14, color = "black"),
     legend.title = element_text(face = "bold", size = 16, color = "black")
-  ) +
-  # Move count labels further to the right for clarity
-  geom_text(aes(y = count + 5, label = count), size = 6, fontface = "bold", color = "black")
+  )
+
+puma_death
 
 # Save the plot as a high-quality image
-ggsave(puma_death, file = "outdir/puma_death.png", width = 10, height = 6, dpi = 600)
+ggsave(puma_death, file = "outdir/resubmission_puma_death.png", width = 10, height = 6, dpi = 600)
 
 
 puma_map + puma_death
+
+
+# Taxonomic breakdown of the parquet file ####
+
+
+# =========================================================
+# 1. READ ARCHIVE: Taxonomic breakdown
+# =========================================================
+parquet_path <- "https://huggingface.co/datasets/diegoellissoto/iNaturalist_mortality_records_12Apr2025/resolve/main/inat_all_Apr122025.parquet"
+
+inat_all_raw <- arrow::read_parquet(parquet_path)
+
+# Pull into memory if needed
+inat_all <- inat_all_raw %>%
+  collect()
+
+taxon_summary <- inat_all %>%
+  mutate(
+    iconic_taxon_name = dplyr::coalesce(iconic_taxon_name, "Unknown")
+  ) %>%
+  count(iconic_taxon_name, name = "n") %>%
+  mutate(prop = n / sum(n)) %>%
+  arrange(desc(n))
+
+taxon_summary
+
+taxon_summary <- inat_all %>%
+  mutate(iconic_taxon_name = coalesce(iconic_taxon_name, "Unknown")) %>%
+  filter(iconic_taxon_name != "Animalia") %>%  # remove redundant level
+  count(iconic_taxon_name, name = "n") %>%
+  mutate(prop = n / sum(n))
+
+ggplot(taxon_summary,
+       aes(x = fct_reorder(iconic_taxon_name, prop), y = prop)) +
+  geom_col(fill = "grey70", color = "black", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 0.1)),
+            hjust = -0.1, size = 5) +
+  coord_flip() +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  labs(
+    x = NULL,
+    y = "Proportion of archive",
+    title = "Taxonomic composition of mortality records"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    axis.text = element_text(size = 14, color = "black"),
+    axis.title = element_text(face = "bold", size = 14)
+  )
+
+inat_all <- inat_all %>%
+  mutate(
+    broad_group = case_when(
+      iconic_taxon_name %in% c("Mammalia", "Aves", "Reptilia", "Amphibia", "Actinopterygii") ~ "Vertebrates",
+      iconic_taxon_name %in% c("Insecta", "Arachnida", "Mollusca") ~ "Invertebrates",
+      TRUE ~ "Other"
+    )
+  )
+
+group_summary <- inat_all %>%
+  count(broad_group, iconic_taxon_name) %>%
+  group_by(broad_group) %>%
+  mutate(prop = n / sum(n))
+
+ggplot(group_summary,
+       aes(x = fct_reorder(iconic_taxon_name, prop), y = prop, fill = broad_group)) +
+  geom_col(color = "black") +
+  coord_flip() +
+  scale_y_continuous(labels = percent_format()) +
+  labs(
+    x = NULL,
+    y = "Proportion within group",
+    fill = "Group",
+    title = "Taxonomic composition grouped by major biological divisions"
+  ) +
+  theme_classic()
+
+tree_df <- inat_all %>%
+  mutate(
+    iconic_taxon_name = coalesce(iconic_taxon_name, "Unknown"),
+    broad_group = case_when(
+      iconic_taxon_name %in% c("Mammalia", "Aves", "Reptilia", "Amphibia", "Actinopterygii") ~ "Vertebrates",
+      iconic_taxon_name %in% c("Insecta", "Arachnida", "Mollusca") ~ "Invertebrates",
+      TRUE ~ "Other"
+    )
+  ) %>%
+  count(broad_group, iconic_taxon_name)
+
+ggplot(tree_df,
+       aes(area = n,
+           fill = broad_group,
+           label = paste0(iconic_taxon_name, "\n", scales::comma(n)))) +
+  geom_treemap(color = "white") +
+  geom_treemap_text(place = "centre", reflow = TRUE, size = 4) +
+  labs(
+    title = "Hierarchical taxonomic composition of mortality records",
+    fill = "Major group"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 18))
+
+taxa_counts <- inat_all %>%
+  count(iconic_taxon_name) %>%
+  pull(n)
+
+Lc(taxa_counts) %>%
+  plot(main = "Inequality in taxonomic representation")
+
+taxa_counts <- inat_all %>%
+  count(iconic_taxon_name) %>%
+  pull(n)
+
+gini <- ineq(taxa_counts, type = "Gini")
+gini
+
+inat_all <- inat_all %>%
+  mutate(
+    iconic_taxon_name = coalesce(iconic_taxon_name, "Unknown"),
+    broad_group = case_when(
+      iconic_taxon_name %in% c("Mammalia", "Aves", "Reptilia", "Amphibia", "Actinopterygii") ~ "Vertebrates",
+      iconic_taxon_name %in% c("Insecta", "Arachnida", "Mollusca") ~ "Invertebrates",
+      TRUE ~ "Other"
+    )
+  )
+
+taxon_counts <- inat_all %>%
+  filter(!iconic_taxon_name %in% c("Unknown")) %>%
+  filter(!broad_group %in% c("Other")) %>%
+  count(broad_group, iconic_taxon_name, name = "n")
+
+
+# Nodes
+nodes <- tibble(
+  name = c("Life", unique(taxon_counts$broad_group), unique(taxon_counts$iconic_taxon_name))
+)
+
+# Edges
+# edges <- bind_rows(
+#   tibble(from = "Life", to = unique(taxon_counts$broad_group)),
+#   taxon_counts %>% select(from = broad_group, to = iconic_taxon_name)
+# )
+
+edges <- taxon_counts %>%
+  select(from = broad_group, to = iconic_taxon_name)
+
+nodes <- tibble(
+  name = c(unique(taxon_counts$broad_group),
+           unique(taxon_counts$iconic_taxon_name))
+)
+
+nodes <- nodes %>%
+  left_join(
+    taxon_counts %>%
+      group_by(iconic_taxon_name) %>%
+      summarise(n = sum(n), .groups = "drop"),
+    by = c("name" = "iconic_taxon_name")
+  ) %>%
+  mutate(n = replace_na(n, 0))
+
+graph <- tbl_graph(nodes = nodes, edges = edges)
+
+ggraph(graph, layout = "tree") +
+  geom_edge_link(alpha = 0.4) +
+  geom_node_point(aes(size = n, color = n)) +
+  geom_node_text(aes(label = name), repel = TRUE, size = 4) +
+  scale_color_viridis_c() +
+  theme_void() +
+  labs(title = "Taxonomic structure of mortality records")
+
+plot_df <- inat_all %>%
+  mutate(iconic_taxon_name = coalesce(iconic_taxon_name, "Unknown")) %>%
+  filter(!iconic_taxon_name %in% c("Unknown", "Animalia")) %>%
+  count(iconic_taxon_name, broad_group, name = "n") %>%
+  mutate(prop = n / sum(n))
+
+ggplot(plot_df,
+       aes(x = fct_reorder(iconic_taxon_name, n), y = n, color = broad_group)) +
+  geom_segment(aes(xend = iconic_taxon_name, y = 0, yend = n),
+               linewidth = 1, alpha = 0.7) +
+  geom_point(size = 6) +
+  coord_flip() +
+  scale_y_continuous(labels = comma_format()) +
+  labs(
+    x = NULL,
+    y = "Number of mortality records",
+    color = "Major group",
+    title = "Taxonomic composition of mortality records"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    axis.text = element_text(size = 14, color = "black"),
+    axis.title = element_text(face = "bold", size = 14)
+  )
+
+
+group_df <- plot_df %>%
+  group_by(broad_group) %>%
+  mutate(within_group_prop = n / sum(n)) %>%
+  ungroup()
+
+ggplot(group_df,
+       aes(x = broad_group, y = within_group_prop, fill = iconic_taxon_name)) +
+  geom_col(width = 0.7, color = "black") +
+  scale_y_continuous(labels = percent_format()) +
+  labs(
+    x = "Major group",
+    y = "Proportion within major group",
+    fill = "Taxon",
+    title = "Within-group taxonomic composition of mortality records"
+  ) +
+  theme_classic()
+
+# starting totals
+n_total <- nrow(inat_all)
+
+# define what will be excluded from the plot
+filtered_out_df <- inat_all %>%
+  mutate(iconic_taxon_name = coalesce(iconic_taxon_name, "Unknown")) %>%
+  filter(iconic_taxon_name %in% c("Unknown", "Animalia"))
+
+n_filtered_out <- nrow(filtered_out_df)
+prop_filtered_out <- n_filtered_out / n_total
+
+n_total
+n_filtered_out
+prop_filtered_out
+
+filtered_out_df <- inat_all %>%
+  mutate(iconic_taxon_name = coalesce(iconic_taxon_name, "Unknown")) %>%
+  filter(iconic_taxon_name %in% c("Unknown", "Animalia") | broad_group == "Other")
+
+n_filtered_out <- nrow(filtered_out_df)
+prop_filtered_out <- n_filtered_out / n_total
+
+
+plot_df <- inat_all %>%
+  mutate(iconic_taxon_name = coalesce(iconic_taxon_name, "Unknown")) %>%
+  filter(!iconic_taxon_name %in% c("Unknown", "Animalia")) %>%
+  filter(!broad_group %in% c("Other")) %>%   # remove if you want to keep "Other"
+  count(iconic_taxon_name, broad_group, name = "n") %>%
+  mutate(prop_archive = n / n_total)
+
+ggplot(plot_df,
+       aes(x = fct_reorder(iconic_taxon_name, prop_archive),
+           y = prop_archive,
+           color = broad_group)) +
+  geom_segment(aes(xend = iconic_taxon_name, y = 0, yend = prop_archive),
+               linewidth = 1, alpha = 0.7) +
+  geom_point(size = 6) +
+  # geom_text(aes(label = percent(prop_archive, accuracy = 0.1)),
+  #           hjust = -0.15, size = 4.5, color = "black") +
+  coord_flip() +
+  scale_y_continuous(
+    labels = percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0.12))
+  ) +
+  labs(
+    x = NULL,
+    y = "Proportion of archive",
+    color = "Major group",
+    title = "Taxonomic composition \n of mortality records"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    axis.text = element_text(size = 14, color = "black"),
+    axis.title = element_text(face = "bold", size = 14),
+    legend.title = element_text(face = "bold")
+  )
+
