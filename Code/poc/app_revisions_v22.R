@@ -25,6 +25,7 @@
 #    - zipped .gdb folder
 #    - .gpkg
 #    - .geojson
+#    - .kml
 # 5. Draw rectangle as alternative study area selector
 # 6. Adaptive time-series axis handling
 # 7. Time-series metrics:
@@ -587,6 +588,10 @@ read_uploaded_study_area <- function(uploaded_file, uploaded_name) {
   if (ext == "geojson") {
     return(sf::st_read(uploaded_file, quiet = TRUE))
   }
+
+  if (ext == "kml") {
+    return(sf::st_read(uploaded_file, quiet = TRUE))
+  }
   
   if (ext == "zip") {
     unzip_dir <- tempfile(pattern = "study_area_")
@@ -619,7 +624,7 @@ read_uploaded_study_area <- function(uploaded_file, uploaded_name) {
     stop("The uploaded .zip did not contain a readable .shp file or .gdb folder.")
   }
   
-  stop("Unsupported file type. Please upload a .zip shapefile, zipped .gdb, .gpkg, or .geojson file.")
+  stop("Unsupported file type. Please upload a .zip shapefile, zipped .gdb, .gpkg, .geojson, or .kml file.")
 }
 
 prepare_uploaded_study_area <- function(study_area) {
@@ -1758,7 +1763,7 @@ fetch_dead_data_once <- function(
   )
 }
 
-fetch_total_observation_count <- function(
+fetch_total_mortality_observation_count <- function(
     swlat,
     swlng,
     nelat,
@@ -1823,6 +1828,72 @@ fetch_total_observation_count <- function(
   parsed <- httr::content(resp, as = "text", encoding = "UTF-8") |>
     jsonlite::fromJSON(flatten = TRUE)
   
+  parsed$total_results
+}
+
+fetch_total_observation_count <- function(
+    swlat,
+    swlng,
+    nelat,
+    nelng,
+    start_date,
+    end_date,
+    iconic_taxa = NULL,
+    taxon_id = NULL,
+    taxon_name = NULL,
+    threatened_flag = FALSE
+) {
+
+  base_url <- "https://api.inaturalist.org/v1/observations"
+
+  q_parts <- list(
+    glue("d1={start_date}"),
+    glue("d2={end_date}"),
+    "verifiable=true",
+    "per_page=0"
+  )
+
+  if (!is.null(iconic_taxa) && nzchar(iconic_taxa)) {
+    q_parts <- c(q_parts, glue("iconic_taxa={iconic_taxa}"))
+  }
+
+  if (!is.null(taxon_id) && nzchar(as.character(taxon_id))) {
+    q_parts <- c(q_parts, glue("taxon_id={taxon_id}"))
+  } else if (!is.null(taxon_name) && nzchar(taxon_name)) {
+    q_parts <- c(q_parts, glue("taxon_name={URLencode(taxon_name)}"))
+  }
+
+  if (isTRUE(threatened_flag)) {
+    q_parts <- c(q_parts, "threatened=true")
+  }
+
+  loc_part <- if (
+    !is.null(swlat) && !is.null(nelat) &&
+    !is.null(swlng) && !is.null(nelng)
+  ) {
+    glue("&swlat={swlat}&swlng={swlng}&nelat={nelat}&nelng={nelng}")
+  } else if (!is.null(swlat) && !is.null(nelat)) {
+    glue("&swlat={swlat}&nelat={nelat}")
+  } else {
+    ""
+  }
+
+  query_url <- paste0(
+    base_url, "?",
+    paste(q_parts, collapse = "&"),
+    loc_part
+  )
+
+  resp <- httr::GET(query_url)
+
+  if (httr::http_error(resp)) {
+    warning("HTTP error while fetching total observation count: ", httr::status_code(resp))
+    return(NA_integer_)
+  }
+
+  parsed <- httr::content(resp, as = "text", encoding = "UTF-8") |>
+    jsonlite::fromJSON(flatten = TRUE)
+
   parsed$total_results
 }
 
@@ -2211,7 +2282,7 @@ getDeadVertebrates_dateRange <- function(
   start_date <- as.Date(start_date)
   end_date   <- as.Date(end_date)
   
-  total_n <- fetch_total_observation_count(
+  total_n <- fetch_total_mortality_observation_count(
     swlat = swlat,
     swlng = swlng,
     nelat = nelat,
@@ -2513,8 +2584,8 @@ ui <- fluidPage(
           
           fileInput(
             "study_area_file",
-            "Upload study area (.zip shapefile, zipped .gdb, .gpkg, or .geojson; max 100 MB)",
-            accept = c(".zip", ".gpkg", ".geojson")
+            "Upload study area (.zip shapefile, zipped .gdb, .gpkg, .geojson, or .kml; max 100 MB)",
+            accept = c(".zip", ".gpkg", ".geojson", ".kml")
           ),
           
           tags$div(
@@ -2769,9 +2840,59 @@ ui <- fluidPage(
               tags$li("Some coordinates may be obscured or generalized for privacy."),
               tags$li("Conservation-status fields may come from different authorities."),
               tags$li("Strong signals should be interpreted with ecological context and, where possible, independent validation.")
+            ),
+            div(
+              class = "note-box",
+              tags$b("Location accuracy note:"),
+              tags$p(
+                "On iNaturalist, the coordinates shown for an observation can represent the center of an uncertainty circle rather than the exact point location. This means an observation center may fall inside your selected bounds while the true location could fall outside if the location accuracy value is large."
+              ),
+              tags$p(
+                "Example: https://www.inaturalist.org/observations/644662"
+              )
+            ),
+            div(
+              class = "note-box",
+              tags$b("Obscured observations:"),
+              tags$p(
+                "Some iNaturalist observations are intentionally obscured for privacy or species-protection reasons. In these cases, displayed coordinates are altered rather than true, and uncertainty / accuracy values can be large. Spatial interpretation of such records should therefore be cautious, especially near study-area boundaries."
+              )
             )
           ),
-          
+          tags$div(
+            style = "margin-top: 14px;",
+            tags$h4("How to interpret counts and spatial filters"),
+            tags$p(
+              "This app displays several related but different quantities."
+            ),
+            tags$ul(
+              tags$li(
+                tags$b("Final records returned"),
+                ": dead-wildlife observations retained after clipping to the uploaded shape or selected area."
+              ),
+              tags$li(
+                tags$b("Total results reported by API"),
+                ": dead-wildlife observations returned by the iNaturalist API for the bounding box before local clipping."
+              ),
+              tags$li(
+                tags$b("Reference total iNaturalist observations"),
+                ": a separate API count of all iNaturalist observations in the same bounding box and date range, regardless of mortality annotation."
+              )
+            ),
+            tags$p(
+              tags$i(
+                "Because the bounding box is usually larger than the uploaded shape, bounding-box totals can be much larger than the final clipped total."
+              )
+            ),
+            tags$h4("Location uncertainty"),
+            tags$p(
+              "Mapped coordinates should be interpreted cautiously. The displayed point may represent the reported center coordinate, while the true location may lie elsewhere within the observation's positional uncertainty ('accuracy'). Obscured observations use altered coordinates and often large uncertainty values, so records near boundaries may not truly fall inside the selected area."
+            ),
+            tags$h4("Interpretation note"),
+            tags$p(
+              "Observed spikes may reflect both mortality signal and observation effort. Raw counts should be interpreted alongside observer counts and the broader volume of iNaturalist activity in the same area and time window."
+            )
+          ),
           div(
             class = "about-card",
             tags$div(class = "about-heading", icon("book", class = "about-icon"), "Citation"),
@@ -2789,7 +2910,7 @@ ui <- fluidPage(
           tags$h3("Quick Start Guide"),
           
           tags$ol(
-            tags$li("Upload a study area file (.zip shapefile, zipped .gdb, .gpkg, or .geojson) or draw a rectangle on the map."),
+            tags$li("Upload a study area file (.zip shapefile, zipped .gdb, .gpkg, .geojson, or .kml) or draw a rectangle on the map."),
             tags$li("Set your date range."),
             tags$li("Choose the time aggregation: day, week, or month."),
             tags$li("Choose whether you want to inspect raw mortality counts, unique observers, or observations per observer."),
@@ -2846,8 +2967,36 @@ ui <- fluidPage(
           tags$ul(
             tags$li("Compare raw counts against unique observers when interpreting spikes."),
             tags$li("Use observations per observer as a simple effort-sensitive contextual metric."),
-            tags$li("Check the All Data Table to inspect status authority, status code, and status name directly."),
-            tags$li("Use the static hexbin map for overview patterns and the interactive map for quick spatial exploration.")
+            tags$li("Check the All Data Table to inspect status authority, status code, status name, and positional_accuracy directly."),
+            tags$li("Use the static hexbin map for overview patterns and the interactive map for quick spatial exploration."),
+            tags$li("The displayed coordinates for an observation may represent the center of a spatial uncertainty radius rather than the exact organism location. If location accuracy is large, the true location may fall outside your selected boundary even when the mapped point falls inside."),
+            tags$li("Obscured observations use altered coordinates and often large uncertainty values, so interpret fine-scale spatial inclusion near boundaries cautiously.")
+          ),
+          tags$div(
+            style = "margin-top: 12px;",
+            tags$h4("How to interpret the counts"),
+            tags$p(
+              "When a study area file is uploaded, the app reports three related but different numbers:"
+            ),
+            tags$ul(
+              tags$li(
+                tags$b("Final records returned"),
+                ": the number of dead-wildlife observations retained after clipping points to the uploaded shape."
+              ),
+              tags$li(
+                tags$b("Total results reported by API"),
+                ": the number of dead-wildlife observations returned by the iNaturalist API for the shape's bounding box before local clipping to the uploaded shape."
+              ),
+              tags$li(
+                tags$b("Reference total iNaturalist observations"),
+                ": a separate API count of all iNaturalist observations in the same bounding box and date range, regardless of mortality annotation."
+              )
+            ),
+            tags$p(
+              tags$i(
+                "Important: for uploaded polygons, the reference total is currently a bounding-box count, not an exact in-polygon count."
+              )
+            )
           )
         )
       )
@@ -3221,7 +3370,10 @@ server <- function(input, output, session) {
       adaptive_used = FALSE
     )
     
-    # NEW: total iNat observation count
+    # NEW: total iNat observation count for all observations in the selected
+    # spatial query window and date range. This is intentionally independent
+    # of the mortality filters used elsewhere in the app so it can serve as a
+    # broad point of reference.
     taxonomy_sel <- selected_taxonomy()
     if (input$filter_mode == "taxonomy" && input$query_type != "iconic" && is.null(taxonomy_sel$id)) {
       showNotification(
@@ -3231,36 +3383,7 @@ server <- function(input, output, session) {
       )
       return(NULL)
     }
-    iconic_for_count <- NULL
-    taxon_id_for_count <- NULL
-    taxon_for_count <- NULL
-    threatened_for_count <- FALSE
-    
-    if (input$filter_mode == "taxonomy") {
-      if (input$query_type == "iconic") {
-        iconic_for_count <- input$iconic_taxon
-      } else {
-        taxon_id_for_count <- taxonomy_sel$id
-        taxon_for_count <- taxonomy_sel$name
-      }
-    } else {
-      if (input$threat_status %in% c("threatened_plus", "NT", "VU", "EN", "CR", "EW", "EX")) {
-        threatened_for_count <- TRUE
-      }
-    }
-    
-    # rv$total_obs_count <- fetch_total_observation_count(
-    #   swlat = swlat,
-    #   swlng = swlng,
-    #   nelat = nelat,
-    #   nelng = nelng,
-    #   start_date = start_date,
-    #   end_date = end_date,
-    #   iconic_taxa = iconic_for_count,
-    #   taxon_name = taxon_for_count,
-    #   threatened_flag = threatened_for_count
-    # )
-    
+
     rv$total_obs_count <- sum(vapply(
       query_windows,
       function(w) {
@@ -3271,10 +3394,10 @@ server <- function(input, output, session) {
           nelng = w$nelng,
           start_date = start_date,
           end_date = end_date,
-          iconic_taxa = iconic_for_count,
-          taxon_id = taxon_id_for_count,
-          taxon_name = taxon_for_count,
-          threatened_flag = threatened_for_count
+          iconic_taxa = NULL,
+          taxon_id = NULL,
+          taxon_name = NULL,
+          threatened_flag = FALSE
         )
       },
       numeric(1)
@@ -3626,9 +3749,15 @@ query_res$threat_mode_label <- make_filter_status_mode_label("live", input$filte
   
   output$total_inat_text <- renderText({
     req(rv$total_obs_count)
+
+    total_label <- if (!is.null(rv$uploaded_study_area)) {
+      "Reference total iNaturalist observations in uploaded-shape bounding box (all observations; separate API count)"
+    } else {
+      "Reference total iNaturalist observations in selected bounding box (all observations; separate API count)"
+    }
     
     paste0(
-      "Total iNaturalist observations in this query window: ",
+      total_label, ": ",
       format(rv$total_obs_count, big.mark = ",")
     )
   })
